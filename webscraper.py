@@ -50,16 +50,24 @@ def extract_article(url):
             "url": url
         }
     
+from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 
-def parse_homepage_generic(html, link_selector):
+def parse_homepage_generic(html, link_selector, base_url):
     soup = BeautifulSoup(html, "lxml")
     links = set()
 
     for tag in soup.select(link_selector):
         href = tag.get("href")
-        if href and href.startswith("http"):
-            links.add(href)
+        if not href:
+            continue
+
+        # Convert relative URLs to absolute
+        full_url = urljoin(base_url, href)
+
+        # Optionally skip obviously bad links (javascript:, mailto:, etc.)
+        if full_url.startswith("http"):
+            links.add(full_url)
 
     return list(links)
 
@@ -86,18 +94,24 @@ def get_top_story_links(site_config):
     html = fetch(site_config["url"])
     if not html:
         return []
-    return parse_homepage_generic(html, site_config["selector"])
+    return parse_homepage_generic(html, site_config["selector"], site_config["url"])
 
 def scrape_site(name, config):
-    print(f"Scraping {name}...")
+    print(f"\nScraping {name}...")
     links = get_top_story_links(config)
-    articles = []
+    print(f"  Found {len(links)} raw links for {name}")
+    if not links:
+        print(f"  No links found for {name} with selector: {config['selector']}")
+        return []
 
+    articles = []
     for link in links[:10]:  # limit to top 10
+        print(f"  Extracting: {link}")
         article = extract_article(link)
         if article:
             articles.append(article)
 
+    print(f"  Finished {name}: {len(articles)} articles extracted")
     return articles
 
 
