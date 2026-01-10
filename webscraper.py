@@ -1,30 +1,50 @@
-### This python script will be used to scrape data from a website and save it to a CSV file.
+"""
+webscraper.py
+
+This module provides functions that take article links as input and scrape
+full article content from each link. It compiles the results into a dictionary
+mapping URLs to extracted article data.
+"""
 
 import requests
-from requests.exceptions import RequestException
+from newspaper import Article
+from readability import Document
+from bs4 import BeautifulSoup
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; NewsScraper/1.0)"
 }
 
+# ------------------------------------------------------------
+# Basic HTML fetcher
+# ------------------------------------------------------------
+
 def fetch(url):
+    """Download raw HTML from a URL with error handling."""
     try:
-        response = requests.get(url, headers=HEADERS, timeout=10)
+        response = requests.get(url, headers=HEADERS, timeout=15)
         response.raise_for_status()
         return response.text
-    except RequestException as e:
-        print(f"Fetch error for {url}: {e}")
+    except Exception as e:
+        print(f"[Fetch Error] {url}: {e}")
         return None
-    
-from newspaper import Article
-from readability import Document
-from bs4 import BeautifulSoup
+
+# ------------------------------------------------------------
+# Article extraction logic
+# ------------------------------------------------------------
 
 def extract_article(url):
+    """
+    Extract article content from a URL.
+    Uses newspaper3k first, then readability as fallback.
+    Returns a dictionary with article metadata.
+    """
+    # Try newspaper3k first
     try:
         article = Article(url)
         article.download()
         article.parse()
+
         return {
             "title": article.title,
             "text": article.text,
@@ -32,12 +52,15 @@ def extract_article(url):
             "publish_date": article.publish_date,
             "url": url
         }
-    except:
-        # Fallback using readability
-        html = fetch(url)
-        if not html:
-            return None
-        
+    except Exception:
+        pass  # Fall back to readability
+
+    # Fallback: readability-lxml
+    html = fetch(url)
+    if not html:
+        return None
+
+    try:
         doc = Document(html)
         soup = BeautifulSoup(doc.summary(), "lxml")
         text = soup.get_text(separator="\n")
@@ -49,81 +72,60 @@ def extract_article(url):
             "publish_date": None,
             "url": url
         }
-    
-from urllib.parse import urljoin
-from bs4 import BeautifulSoup
+    except Exception as e:
+        print(f"[Parse Error] {url}: {e}")
+        return None
 
-def parse_homepage_generic(html, link_selector, base_url):
-    soup = BeautifulSoup(html, "lxml")
-    links = set()
+# ------------------------------------------------------------
+# Batch scraping
+# ------------------------------------------------------------
 
-    for tag in soup.select(link_selector):
-        href = tag.get("href")
-        if not href:
-            continue
+def scrape_articles(url_list):
+    """
+    Given a list of article URLs, scrape each one and return
+    a dictionary mapping URL → article data.
+    """
+    results = {}
 
-        # Convert relative URLs to absolute
-        full_url = urljoin(base_url, href)
+    for url in url_list:
+        print(f"Scraping: {url}")
+        article_data = extract_article(url)
 
-        # Optionally skip obviously bad links (javascript:, mailto:, etc.)
-        if full_url.startswith("http"):
-            links.add(full_url)
+        if article_data:
+            results[url] = article_data
+        else:
+            print(f"  Failed to extract: {url}")
 
-    return list(links)
+    return results
 
-NEWS_SITES = {
-    "AP": {
-        "url": "https://apnews.com",
-        "selector": "a[data-key='card-headline']"
-    },
-    "NPR": {
-        "url": "https://www.npr.org",
-        "selector": "h3.title a"
-    },
-    "Reuters": {
-        "url": "https://www.reuters.com",
-        "selector": "a.story-title, a.media-story-card__heading__link"
-    },
-    "Fox": {
-        "url": "https://www.foxnews.com",
-        "selector": "h2.title a"
-    }
-}
+# ------------------------------------------------------------
+# Optional: scrape grouped by source
+# ------------------------------------------------------------
 
-def get_top_story_links(site_config):
-    html = fetch(site_config["url"])
-    if not html:
-        return []
-    return parse_homepage_generic(html, site_config["selector"], site_config["url"])
+def scrape_articles_by_source(source_dict):
+    """
+    Accepts a dictionary like:
+        { "NBC": [url1, url2], "CBS": [url3, url4] }
 
-def scrape_site(name, config):
-    print(f"\nScraping {name}...")
-    links = get_top_story_links(config)
-    print(f"  Found {len(links)} raw links for {name}")
-    if not links:
-        print(f"  No links found for {name} with selector: {config['selector']}")
-        return []
+    Returns:
+        { "NBC": {url1: {...}, url2: {...}}, "CBS": {...} }
+    """
+    all_results = {}
 
-    articles = []
-    for link in links[:10]:  # limit to top 10
-        print(f"  Extracting: {link}")
-        article = extract_article(link)
-        if article:
-            articles.append(article)
+    for source, urls in source_dict.items():
+        print(f"\n=== Scraping articles from {source} ===")
+        all_results[source] = scrape_articles(urls)
 
-    print(f"  Finished {name}: {len(articles)} articles extracted")
-    return articles
+    return all_results
 
 
-def scrape_all_sites():
-    all_articles = {}
-
-    for name, config in NEWS_SITES.items():
-        articles = scrape_site(name, config)
-        all_articles[name] = articles
-
-    return all_articles
+# ------------------------------------------------------------
+# Example usage (manual testing)
+# ------------------------------------------------------------
 
 if __name__ == "__main__":
-    data = scrape_all_sites()
+    test_links = [
+        "https://apnews.com/article/iran-protests-us-israel-war-nuclear-economy-c867cd53c99585cc5e0cd98eafe95d16"
+    ]
+    data = scrape_articles(test_links)
     print(data)
