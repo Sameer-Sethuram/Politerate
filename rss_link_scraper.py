@@ -18,13 +18,13 @@ from bs4 import BeautifulSoup
 # ------------------------------------------------------------
 
 RSS_FEEDS = {
-    "NPR": "https://news.google.com/rss/search?q=when:24h+allinurl:npr.org&hl=en-US&gl=US&ceid=US:en",
-    #"Fox": "https://moxie.foxnews.com/google-publisher/politics.xml",
-    #"NBC": "https://feeds.nbcnews.com/nbcnews/public/news",
-    #"NYPost - Politics": "https://nypost.com/feed/",
-    #"NYPost - US News": "https://nypost.com/us-news/feed/",
-    #"CBS": "https://www.cbsnews.com/latest/rss/politics",
-    #"AP": "https://news.google.com/rss/search?q=when:24h+allinurl:apnews.com&hl=en-US&gl=US&ceid=US:en"
+    "Fox": "https://moxie.foxnews.com/google-publisher/politics.xml",
+    "NBC": "https://feeds.nbcnews.com/nbcnews/public/news",
+    "NYPost - Politics": "https://nypost.com/feed/",
+    "NYPost - US News": "https://nypost.com/us-news/feed/",
+    "CBS": "https://www.cbsnews.com/latest/rss/politics",
+    "ABC": "https://abcnews.go.com/abcnews/politicsheadlines",
+    "Guardian": "https://www.theguardian.com/us-news/us-politics/rss"
 }
 
 # ------------------------------------------------------------
@@ -63,32 +63,6 @@ def is_podcast_url(url):
 def is_google_news_entry(entry):
     return entry.get("id", "").startswith("tag:news.google.com")
 
-def resolve_google_news_url(url):
-    """
-    Resolve Google News redirect URLs by converting the RSS URL
-    into the actual redirect endpoint, then parsing the HTML.
-    """
-    try:
-        # Convert RSS URL → real redirect URL
-        # Example:
-        # https://news.google.com/rss/articles/XYZ?oc=5
-        # → https://news.google.com/articles/XYZ
-        base = url.split("/rss/")[-1]
-        clean_url = "https://news.google.com/" + base.split("?")[0]
-
-        resp = requests.get(clean_url, timeout=5)
-        soup = BeautifulSoup(resp.text, "lxml")
-
-        meta = soup.find("meta", attrs={"http-equiv": "refresh"})
-        if meta and "url=" in meta.get("content", ""):
-            return meta["content"].split("url=")[-1].strip()
-
-        return url
-
-    except Exception as e:
-        print(f"[Resolve Error] {url}: {e}")
-        return url
-
 # ------------------------------------------------------------
 # RSS Fetching
 # ------------------------------------------------------------
@@ -102,10 +76,7 @@ def fetch_rss_feed(url):
         raw_link = entry.link
 
         # 1. Resolve Google News redirect FIRST
-        if raw_link.startswith("https://news.google.com"):
-            link = resolve_google_news_url(raw_link)
-        else:
-            link = raw_link
+        link = raw_link
 
         # 2. Filter podcasts AFTER redirect
         if is_podcast_url(link):

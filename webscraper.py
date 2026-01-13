@@ -122,10 +122,9 @@ def scrape_articles_by_source(source_dict):
 # ------------------------------------------------------------
 # Example usage (manual testing)
 # ------------------------------------------------------------
+from rss_link_scraper import get_all_top_story_links
 
 if __name__ == "__main__":
-    test_links = [
-        "https://apnews.com/article/iran-protests-us-israel-war-nuclear-economy-c867cd53c99585cc5e0cd98eafe95d16"
-    ]
-    data = scrape_articles(test_links)
+    test_links = get_all_top_story_links()    
+    data = scrape_articles_by_source(test_links)
     print(data)
