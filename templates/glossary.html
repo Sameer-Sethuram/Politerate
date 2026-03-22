@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Political Glossary - Politerate</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #f0f2f5;
+            color: #1c1e21;
+            line-height: 1.6;
+        }
+
+        header {
+            background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%);
+            color: white;
+            padding: 1.5rem 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.75rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .header-nav {
+            display: flex;
+            gap: 1.5rem;
+            align-items: center;
+        }
+
+        .header-nav a {
+            color: rgba(255,255,255,0.85);
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .header-nav a:hover {
+            color: white;
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        main {
+            max-width: 900px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+
+        .page-title {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #1a365d;
+            margin-bottom: 0.5rem;
+        }
+
+        .page-subtitle {
+            color: #64748b;
+            margin-bottom: 2rem;
+        }
+
+        .filters {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .search-input {
+            flex: 1;
+            min-width: 250px;
+            padding: 0.75rem 1rem;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.2s;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: #2c5282;
+        }
+
+        .category-select {
+            padding: 0.75rem 1rem;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 1rem;
+            background: white;
+            cursor: pointer;
+            min-width: 180px;
+        }
+
+        .category-select:focus {
+            outline: none;
+            border-color: #2c5282;
+        }
+
+        .terms-count {
+            color: #64748b;
+            margin-bottom: 1.5rem;
+            font-size: 0.95rem;
+        }
+
+        .terms-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .term-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            transition: box-shadow 0.2s, transform 0.2s;
+        }
+
+        .term-card:hover {
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+
+        .term-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.75rem;
+        }
+
+        .term-name {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #1a365d;
+        }
+
+        .term-category {
+            background: #ebf4ff;
+            color: #1e40af;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .term-definition {
+            color: #4a5568;
+            line-height: 1.7;
+        }
+
+        .term-sources-toggle {
+            margin-top: 1rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        .toggle-sources-btn {
+            background: none;
+            border: none;
+            color: #2c5282;
+            font-size: 0.9rem;
+            cursor: pointer;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 500;
+        }
+
+        .toggle-sources-btn:hover {
+            text-decoration: underline;
+        }
+
+        .toggle-sources-btn::before {
+            content: '▶';
+            font-size: 0.7rem;
+            transition: transform 0.2s;
+        }
+
+        .toggle-sources-btn.expanded::before {
+            transform: rotate(90deg);
+        }
+
+        .term-sources-list {
+            display: none;
+            margin-top: 0.75rem;
+            padding: 0.75rem;
+            background: #f8fafc;
+            border-radius: 8px;
+        }
+
+        .term-sources-list.visible {
+            display: block;
+        }
+
+        .source-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .source-item:last-child {
+            border-bottom: none;
+        }
+
+        .source-title {
+            color: #4a5568;
+            font-size: 0.9rem;
+            flex: 1;
+            margin-right: 1rem;
+        }
+
+        .source-link {
+            color: #2c5282;
+            text-decoration: none;
+            font-size: 0.85rem;
+            white-space: nowrap;
+        }
+
+        .source-link:hover {
+            text-decoration: underline;
+        }
+
+        .no-sources {
+            color: #94a3b8;
+            font-size: 0.85rem;
+            font-style: italic;
+        }
+
+        .no-results {
+            text-align: center;
+            padding: 3rem;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        .no-results h3 {
+            color: #64748b;
+            margin-bottom: 0.5rem;
+        }
+
+        .no-results p {
+            color: #94a3b8;
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+
+        footer a {
+            color: #2c5282;
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 600px) {
+            .header-content {
+                flex-direction: column;
+                gap: 1rem;
+                text-align: center;
+            }
+
+            .filters {
+                flex-direction: column;
+            }
+
+            .search-input, .category-select {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <div class="logo">Politerate</div>
+            <div class="header-nav">
+                <a href="/" class="back-link">← Back to News</a>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <h1 class="page-title">Political Glossary</h1>
+        <p class="page-subtitle">Learn the meaning of political terms used in today's news</p>
+
+        <div class="filters">
+            <input 
+                type="text" 
+                class="search-input" 
+                id="search-input" 
+                placeholder="Search terms..."
+                autocomplete="off"
+            >
+            <select class="category-select" id="category-select">
+                <option value="">All Categories</option>
+            </select>
+        </div>
+
+        <p class="terms-count" id="terms-count">Loading...</p>
+
+        <div id="terms-container" class="terms-list">
+            <div style="text-align: center; padding: 2rem;">
+                <p>Loading glossary...</p>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <a href="/">Back to News</a> | Politerate - Making political news accessible
+    </footer>
+
+    <script>
+        let allTerms = [];
+        let categories = [];
+
+        function filterTerms() {
+            const searchQuery = document.getElementById('search-input').value.toLowerCase();
+            const categoryFilter = document.getElementById('category-select').value;
+
+            const filtered = allTerms.filter(term => {
+                const matchesSearch = !searchQuery || 
+                    term.term.toLowerCase().includes(searchQuery) ||
+                    term.definition.toLowerCase().includes(searchQuery);
+                
+                const matchesCategory = !categoryFilter || 
+                    term.category.toLowerCase() === categoryFilter.toLowerCase();
+
+                return matchesSearch && matchesCategory;
+            });
+
+            renderTerms(filtered);
+        }
+
+        function renderTerms(terms) {
+            const container = document.getElementById('terms-container');
+            const countEl = document.getElementById('terms-count');
+
+            countEl.textContent = `Showing ${terms.length} term${terms.length !== 1 ? 's' : ''}`;
+
+            if (terms.length === 0) {
+                container.innerHTML = `
+                    <div class="no-results">
+                        <h3>No terms found</h3>
+                        <p>Try adjusting your search or filter</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = terms.map((term, index) => {
+                const articleLinks = term.article_links || [];
+                const sourcesSection = articleLinks.length > 0
+                    ? `
+                        <div class="term-sources-toggle">
+                            <button class="toggle-sources-btn" onclick="toggleSources(${index})">
+                                See sources (${articleLinks.length})
+                            </button>
+                            <div class="term-sources-list" id="sources-${index}">
+                                ${articleLinks.map(link => `
+                                    <div class="source-item">
+                                        <span class="source-title">${link.title || link.source}</span>
+                                        <a href="${link.url}" target="_blank" rel="noopener noreferrer" class="source-link">
+                                            Read →
+                                        </a>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `
+                    : `
+                        <div class="term-sources-toggle">
+                            <span class="no-sources">No sources found for this term today</span>
+                        </div>
+                    `;
+
+                return `
+                    <div class="term-card">
+                        <div class="term-header">
+                            <span class="term-name">${term.term}</span>
+                            <span class="term-category">${term.category}</span>
+                        </div>
+                        <p class="term-definition">${term.definition}</p>
+                        ${sourcesSection}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function toggleSources(index) {
+            const sourcesList = document.getElementById(`sources-${index}`);
+            const btn = sourcesList.previousElementSibling;
+
+            sourcesList.classList.toggle('visible');
+            btn.classList.toggle('expanded');
+        }
+
+        function populateCategories() {
+            const select = document.getElementById('category-select');
+            
+            categories.forEach(category => {
+                const option = document.createElement('option');
+                option.value = category;
+                option.textContent = category.charAt(0).toUpperCase() + category.slice(1);
+                select.appendChild(option);
+            });
+        }
+
+        async function loadGlossary() {
+            try {
+                const [termsRes, categoriesRes] = await Promise.all([
+                    fetch('/api/glossary'),
+                    fetch('/api/glossary/categories')
+                ]);
+
+                const termsData = await termsRes.json();
+                const categoriesData = await categoriesRes.json();
+
+                allTerms = termsData.terms || [];
+                categories = categoriesData.categories || [];
+
+                populateCategories();
+                renderTerms(allTerms);
+            } catch (error) {
+                console.error('Failed to load glossary:', error);
+                document.getElementById('terms-container').innerHTML = `
+                    <div class="no-results">
+                        <h3>Failed to load glossary</h3>
+                        <p>Please refresh the page to try again</p>
+                    </div>
+                `;
+            }
+        }
+
+        document.getElementById('search-input').addEventListener('input', filterTerms);
+        document.getElementById('category-select').addEventListener('change', filterTerms);
+
+        document.addEventListener('DOMContentLoaded', loadGlossary);
+    </script>
+</body>
+</html>
