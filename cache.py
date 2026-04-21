@@ -245,7 +245,7 @@ def get_cached_summaries() -> dict:
     cursor.execute("""
         SELECT id, summary, highlighted_summary, sources, urls, titles, terms, article_count, updated_at
         FROM clusters
-        ORDER BY updated_at DESC
+        ORDER BY article_count DESC, updated_at DESC
     """)
     rows = cursor.fetchall()
 

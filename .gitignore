@@ -59,3 +59,6 @@ models/credibility/*.safetensors
 
 # Summarizer model folder
 fine_tuned_bart_news/
+
+# Dev scratch: pipeline test runners and their outputs
+outputs/

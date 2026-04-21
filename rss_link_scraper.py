@@ -19,8 +19,8 @@ from bs4 import BeautifulSoup
 
 RSS_FEEDS = {
     "Fox": "https://moxie.foxnews.com/google-publisher/politics.xml",
-    "NBC": "https://feeds.nbcnews.com/nbcnews/public/news",
-    "NYPost - Politics": "https://nypost.com/feed/",
+    "NBC": "https://feeds.nbcnews.com/nbcnews/public/politics",
+    "NYPost - Politics": "https://nypost.com/politics/feed/",
     "NYPost - US News": "https://nypost.com/us-news/feed/",
     "CBS": "https://www.cbsnews.com/latest/rss/politics",
     "ABC": "https://abcnews.go.com/abcnews/politicsheadlines",

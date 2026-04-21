@@ -15,6 +15,7 @@ Usage:
 """
 
 import logging
+import re
 from typing import Optional
 
 from preprocessor import preprocess_batch
@@ -27,6 +28,93 @@ logging.basicConfig(
     format="[%(levelname)s] %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+# Tune from here. A cluster must have >= MIN_ARTICLES_PER_CLUSTER to be in the
+# daily brief; at most MAX_CLUSTERS_IN_DAILY_BRIEF survive (used for topic cards),
+# and MAX_CLUSTERS_IN_BRIEF_INPUT caps what we actually feed to the hierarchical
+# BART pass — keeping the input short avoids degenerate generation when BART
+# runs out of coherent things to say.
+MIN_ARTICLES_PER_CLUSTER = 3
+MAX_CLUSTERS_IN_DAILY_BRIEF = 8
+MAX_CLUSTERS_IN_BRIEF_INPUT = 5
+
+
+_CAMEL_BOUNDARY = re.compile(r"[a-z][A-Z]")
+
+
+def _looks_garbled(text: str) -> bool:
+    """Detect BART degenerate output. Heuristic: more than a few camel-case
+    boundaries (e.g. "BanksCloseagnSteam") inside a single summary is a strong
+    signal that the decoder fell off into low-probability token space.
+    """
+    if not text:
+        return False
+    return len(_CAMEL_BOUNDARY.findall(text)) >= 4
+
+
+_SENTENCE_END = re.compile(r"(?<![.!?])[.!?](?![.!?])")
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+_ABBREV_END = re.compile(r"\b[A-Z][a-zA-Z-]{0,4}\.$")
+MIN_SENT_WORDS = 4
+
+
+def _smart_sentence_split(text: str) -> list[str]:
+    """Sentence-split but merge fragments that end in an abbreviation into
+    the next fragment (e.g. "Rep." + "Chris Murphy said..." → one sentence).
+
+    Treats a "short capitalized word + ." (≤5 letters) as abbreviation —
+    catches Rep./Sen./Gov./Dr./Mr./U.S./D-Fla./etc. without maintaining a
+    static dictionary.
+    """
+    parts = _SENTENCE_SPLIT.split(text)
+    merged: list[str] = []
+    i = 0
+    while i < len(parts):
+        current = parts[i]
+        while _ABBREV_END.search(current.rstrip()) and i + 1 < len(parts):
+            i += 1
+            current = current + " " + parts[i]
+        merged.append(current)
+        i += 1
+    return merged
+
+
+def _clean_bart_output(text: str) -> str:
+    """Fix BART tokenizer artifacts and trim incomplete trailing sentences.
+
+    BART's decoder occasionally emits ` .` with a leading space, sometimes
+    hits max_length mid-sentence, sometimes ends in a truncation ellipsis
+    (e.g. "...might prove FBI..."), and sometimes emits a tiny trailing
+    fragment like "Report: Rep." where it started a new thought but ran out
+    of budget. We collapse the space artifact, strip trailing ellipsis,
+    truncate back to the last genuine sentence end, then use
+    abbreviation-aware splitting to drop abnormally short trailing
+    sentences or truncated-abbreviation tails.
+    """
+    if not text:
+        return text
+
+    text = re.sub(r"\s+([.!?,;:])", r"\1", text)
+    text = re.sub(r"\s*\.{2,}\s*$", "", text)
+    text = re.sub(r"\s{2,}", " ", text).strip()
+
+    last_end = -1
+    for m in _SENTENCE_END.finditer(text):
+        last_end = m.end()
+    if last_end > 0:
+        text = text[:last_end].strip()
+
+    sentences = _smart_sentence_split(text)
+    while len(sentences) > 1:
+        last = sentences[-1].rstrip()
+        if _ABBREV_END.search(last) or len(last.split()) < MIN_SENT_WORDS:
+            sentences.pop()
+        else:
+            break
+    text = " ".join(sentences).strip()
+
+    return text
 
 
 class PoliteratePipeline:
@@ -84,12 +172,11 @@ class PoliteratePipeline:
         logger.info(f"Credibility filter: {len(passed)} passed, {len(failed)} filtered")
         return passed, failed
 
-    def summarize(self, text: str) -> str:
+    def summarize(self, text: str, max_length: int = 180, min_length: int = 60) -> str:
         if not self._model:
             logger.warning("Summarization model not loaded - returning placeholder")
             return "[Summary unavailable - model not loaded]"
 
-        from transformers import GenerationConfig
         inputs = self._tokenizer(
             text,
             max_length=1024,
@@ -103,13 +190,16 @@ class PoliteratePipeline:
 
         outputs = self._model.generate(
             **inputs,
-            max_length=150,
-            min_length=50,
-            num_beams=4,
-            early_stopping=True
+            max_length=max_length,
+            min_length=min_length,
+            num_beams=6,
+            no_repeat_ngram_size=3,
+            length_penalty=1.1,
+            early_stopping=True,
         )
 
-        return self._tokenizer.decode(outputs[0], skip_special_tokens=True)
+        decoded = self._tokenizer.decode(outputs[0], skip_special_tokens=True)
+        return _clean_bart_output(decoded)
 
     def load_model(self, path: str = None) -> None:
         path = path or self.model_path
@@ -134,44 +224,60 @@ class PoliteratePipeline:
     def highlight_terms(self, text: str) -> str:
         return self.highlighter.highlight(text)
 
+    def _select_brief_clusters(self, clusters: list[dict]) -> list[dict]:
+        eligible = [
+            c for c in clusters
+            if not str(c.get("cluster_id", "")).startswith("singleton_")
+            and c.get("article_count", 0) >= MIN_ARTICLES_PER_CLUSTER
+        ]
+        eligible.sort(key=lambda c: c.get("article_count", 0), reverse=True)
+        return eligible[:MAX_CLUSTERS_IN_DAILY_BRIEF]
+
     def create_daily_summary(self, clusters: list[dict]) -> str:
-        """Create a unified daily summary from all clusters with automatic transitions."""
-        if not clusters:
+        """Build a coherent daily brief via hierarchical summarization.
+
+        Strategy:
+          1. Pick the top N clusters by article count (filtering singletons
+             and small clusters via MIN_ARTICLES_PER_CLUSTER / MAX_...).
+          2. If the model is loaded, feed the top MAX_CLUSTERS_IN_BRIEF_INPUT
+             per-cluster summaries back through BART for a unified brief.
+          3. If no model or BART produces garbage, fall back to
+             cleanly-punctuated concatenation.
+        """
+        selected = self._select_brief_clusters(clusters)
+
+        segments = []
+        for c in selected:
+            summary = _clean_bart_output(c.get("summary", ""))
+            if summary and not summary.startswith("["):
+                segments.append(summary)
+
+        if not segments:
             return "[No significant news clusters available today]"
 
-        sorted_clusters = sorted(clusters, key=lambda x: x.get("article_count", 0), reverse=True)
+        concatenated_all = " ".join(segments)
+        brief_input = " ".join(segments[:MAX_CLUSTERS_IN_BRIEF_INPUT])
 
-        summary_segments = []
-        for i, cluster in enumerate(sorted_clusters):
-            summary = cluster.get("summary", "")
-            if not summary or summary.startswith("["):
-                continue
+        if self._model:
+            try:
+                brief = self.summarize(brief_input, max_length=350, min_length=80)
+                if brief and not brief.startswith("[") and not _looks_garbled(brief):
+                    return brief
+                if _looks_garbled(brief):
+                    logger.warning("Hierarchical brief looked garbled, falling back to concatenation")
+            except Exception as e:
+                logger.warning(f"Hierarchical summary failed, falling back: {e}")
 
-            if i == 0:
-                summary_segments.append(summary)
-            else:
-                transition_phrases = [
-                    "Additionally,",
-                    "Meanwhile,",
-                    "In related news,",
-                    "Separately,",
-                    "On another topic,"
-                ]
-                transition = transition_phrases[i % len(transition_phrases)]
-                summary_segments.append(f"{transition} {summary.lower()}")
-
-        if not summary_segments:
-            return "[Summary unavailable - check back later]"
-
-        return " ".join(summary_segments)
+        return concatenated_all
 
     def get_daily_summary_data(self, clusters: list[dict]) -> dict:
         """Get all data needed for the daily summary view."""
         filtered_clusters = [
             c for c in clusters
             if not str(c.get("cluster_id", "")).startswith("singleton_")
-            and c.get("article_count", 0) >= 2
+            and c.get("article_count", 0) >= MIN_ARTICLES_PER_CLUSTER
         ]
+        filtered_clusters.sort(key=lambda c: c.get("article_count", 0), reverse=True)
 
         all_sources = set()
         all_article_count = 0

@@ -380,6 +380,22 @@
             margin-bottom: 1.5rem;
         }
 
+        .ai-disclaimer {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            font-size: 0.75rem;
+            color: #78716c;
+            background: #fef3c7;
+            padding: 0.25rem 0.6rem;
+            border-radius: 12px;
+            margin-bottom: 1rem;
+            border: 1px solid #fde68a;
+        }
+        .ai-disclaimer.inline {
+            margin-bottom: 0.75rem;
+        }
+
         .daily-sources-section {
             background: #f8fafc;
             border-radius: 12px;
@@ -607,6 +623,7 @@
                         <div class="cluster-meta">${cluster.article_count} article${cluster.article_count > 1 ? 's' : ''}</div>
                     </div>
                 </div>
+                <div class="ai-disclaimer inline">⚠️ AI-generated — verify with sources below.</div>
                 <div class="summary-text">
                     ${cluster.highlighted_summary || cluster.summary}
                 </div>
@@ -659,6 +676,7 @@
                             <span class="meta-badge"><strong>${data.source_count || 0}</strong> sources</span>
                         </div>
                     </div>
+                    <div class="ai-disclaimer">⚠️ AI-generated summary — verify against linked sources before sharing.</div>
                     <div class="daily-summary-text">
                         ${data.highlighted_summary || data.unified_summary}
                     </div>

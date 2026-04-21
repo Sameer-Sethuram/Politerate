@@ -165,37 +165,97 @@ def _build_term_question(
     }
 
 
-def _build_fill_in_question(
+def _build_headline_question(
     term: str,
     articles: list[dict],
     glossary: dict,
-    rng: random.Random
+    rng: random.Random,
 ) -> Optional[dict]:
-    snippet_info = _article_snippets_for_term(articles, term, limit=1)
-    if not snippet_info:
+    """Show a real article headline + sentence-level context, ask which term fits.
+
+    Unlike fill-in-the-blank on raw news text, this preserves full context so
+    the reader has enough to identify the concept. Distractors deliberately
+    exclude any term that ALSO appears in the article body, to avoid ambiguity.
+    """
+    candidates = []
+    for article in articles:
+        text = article.get("text", "") or ""
+        if not _has_term(text, term):
+            continue
+        title = article.get("title") or ""
+        if not title:
+            continue
+        sentence = _sentence_containing_term(text, term)
+        candidates.append({
+            "source": article.get("source", "Unknown"),
+            "url": article.get("url", "#"),
+            "title": title,
+            "sentence": sentence,
+            "text": text,
+        })
+
+    if not candidates:
         return None
-    snippet = snippet_info[0]["snippet"]
-    redacted = re.sub(
-        r"\b" + re.escape(term) + r"\b",
-        "______",
-        snippet,
-        flags=re.IGNORECASE,
-    )
-    distractors = _build_distractors(term, glossary, rng, k=3)
+
+    choice = rng.choice(candidates)
+
+    terms_in_article = {
+        t for t in glossary if _has_term(choice["text"], t)
+    }
+    distractor_pool = [
+        t for t in glossary
+        if t != term and t not in terms_in_article
+    ]
+    rng.shuffle(distractor_pool)
+
+    correct_cat = glossary.get(term, {}).get("category", "")
+    same_cat = [t for t in distractor_pool if glossary.get(t, {}).get("category") == correct_cat]
+    other_cat = [t for t in distractor_pool if glossary.get(t, {}).get("category") != correct_cat]
+    distractors = (same_cat[:2] + other_cat)[:3]
+
+    if len(distractors) < 3:
+        return None
+
     options = [{"text": term, "correct": True}] + [
         {"text": d, "correct": False} for d in distractors
     ]
     rng.shuffle(options)
 
+    context_line = choice["sentence"] or choice["title"]
+
     return {
-        "type": "fill_in",
-        "prompt": f"Which term fits the blank in this headline or excerpt?\n\n\"{redacted}\"",
+        "type": "headline",
+        "prompt": (
+            f"Which political term is central to this news story?\n\n"
+            f"Headline: \"{choice['title']}\"\n\n"
+            f"Context: \"{context_line}\""
+        ),
         "term": term,
         "category": glossary.get(term, {}).get("category", ""),
         "options": options,
-        "article_snippet": snippet_info[0],
+        "article_snippet": {
+            "source": choice["source"],
+            "url": choice["url"],
+            "title": choice["title"],
+            "snippet": context_line,
+        },
         "explanation": f"{term}: {glossary.get(term, {}).get('definition', '')}",
     }
+
+
+def _has_term(text: str, term: str) -> bool:
+    return bool(re.search(r"\b" + re.escape(term) + r"\b", text or "", re.IGNORECASE))
+
+
+def _sentence_containing_term(text: str, term: str) -> str:
+    if not text:
+        return ""
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    pattern = re.compile(r"\b" + re.escape(term) + r"\b", re.IGNORECASE)
+    for s in sentences:
+        if pattern.search(s):
+            return s.strip()
+    return ""
 
 
 def build_quiz(
@@ -239,12 +299,12 @@ def build_quiz(
 
         builders = [_build_definition_question, _build_term_question]
         if term in in_news:
-            builders = [_build_fill_in_question] + builders
+            builders = [_build_headline_question] + builders
 
         question = None
         for builder in builders:
             try:
-                if builder is _build_fill_in_question:
+                if builder is _build_headline_question:
                     question = builder(term, articles, glossary, rng)
                 else:
                     question = builder(term, glossary, articles, rng)
