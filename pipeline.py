@@ -81,16 +81,16 @@ def _smart_sentence_split(text: str) -> list[str]:
 
 
 def _clean_bart_output(text: str) -> str:
-    """Fix BART tokenizer artifacts and trim incomplete trailing sentences.
+    """Fix BART tokenizer artifacts and drop incomplete trailing sentences.
 
-    BART's decoder occasionally emits ` .` with a leading space, sometimes
-    hits max_length mid-sentence, sometimes ends in a truncation ellipsis
-    (e.g. "...might prove FBI..."), and sometimes emits a tiny trailing
-    fragment like "Report: Rep." where it started a new thought but ran out
-    of budget. We collapse the space artifact, strip trailing ellipsis,
-    truncate back to the last genuine sentence end, then use
-    abbreviation-aware splitting to drop abnormally short trailing
-    sentences or truncated-abbreviation tails.
+    Pipeline:
+      1. Collapse ` .` → `.` artifacts and trailing ellipsis.
+      2. Abbreviation-aware sentence split.
+      3. Drop trailing fragments — sentences that lack a terminator, end in
+         a truncated-abbreviation tail, or are abnormally short.
+      4. If the surviving text has no sentence-ending punctuation (common
+         when BART hit max_length mid-sentence and we kept the one
+         sentence), append a period so the card reads cleanly.
     """
     if not text:
         return text
@@ -99,21 +99,20 @@ def _clean_bart_output(text: str) -> str:
     text = re.sub(r"\s*\.{2,}\s*$", "", text)
     text = re.sub(r"\s{2,}", " ", text).strip()
 
-    last_end = -1
-    for m in _SENTENCE_END.finditer(text):
-        last_end = m.end()
-    if last_end > 0:
-        text = text[:last_end].strip()
-
     sentences = _smart_sentence_split(text)
     while len(sentences) > 1:
         last = sentences[-1].rstrip()
-        if _ABBREV_END.search(last) or len(last.split()) < MIN_SENT_WORDS:
+        has_terminator = bool(last) and last[-1] in ".!?"
+        is_abbrev_end = bool(_ABBREV_END.search(last))
+        is_too_short = len(last.split()) < MIN_SENT_WORDS
+        if (not has_terminator) or is_abbrev_end or is_too_short:
             sentences.pop()
         else:
             break
-    text = " ".join(sentences).strip()
 
+    text = " ".join(sentences).strip()
+    if text and text[-1] not in ".!?":
+        text = text + "."
     return text
 
 
