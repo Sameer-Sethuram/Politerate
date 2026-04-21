@@ -53,6 +53,22 @@ def _looks_garbled(text: str) -> bool:
     return len(_CAMEL_BOUNDARY.findall(text)) >= 4
 
 
+def _strip_garbled_tail(text: str) -> str:
+    """Salvage the coherent prefix of a garbled BART output by trimming at
+    the last sentence end before the first camelCase anomaly.
+    """
+    if not text:
+        return text
+    m = _CAMEL_BOUNDARY.search(text)
+    if not m:
+        return text
+    prefix = text[: m.start()]
+    last_end = max(prefix.rfind("."), prefix.rfind("!"), prefix.rfind("?"))
+    if last_end > 0:
+        return prefix[: last_end + 1].strip()
+    return prefix.strip()
+
+
 _SENTENCE_END = re.compile(r"(?<![.!?])[.!?](?![.!?])")
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _ABBREV_END = re.compile(r"\b[A-Z][a-zA-Z-]{0,4}\.$")
@@ -171,22 +187,16 @@ class PoliteratePipeline:
         logger.info(f"Credibility filter: {len(passed)} passed, {len(failed)} filtered")
         return passed, failed
 
-    def summarize(self, text: str, max_length: int = 260, min_length: int = 100) -> str:
-        if not self._model:
-            logger.warning("Summarization model not loaded - returning placeholder")
-            return "[Summary unavailable - model not loaded]"
-
+    def _bart_generate(self, text: str, max_length: int, min_length: int) -> str:
         inputs = self._tokenizer(
             text,
             max_length=1024,
             truncation=True,
-            return_tensors="pt"
+            return_tensors="pt",
         )
-
         import torch
         device = "cuda" if torch.cuda.is_available() else "cpu"
         inputs = {k: v.to(device) for k, v in inputs.items()}
-
         outputs = self._model.generate(
             **inputs,
             max_length=max_length,
@@ -196,9 +206,33 @@ class PoliteratePipeline:
             length_penalty=1.1,
             early_stopping=True,
         )
+        return self._tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-        decoded = self._tokenizer.decode(outputs[0], skip_special_tokens=True)
-        return _clean_bart_output(decoded)
+    def summarize(self, text: str, max_length: int = 220, min_length: int = 90) -> str:
+        """Summarize with a three-stage anti-garbage strategy:
+          1. Generate at the requested budget.
+          2. If the output is garbled, salvage the coherent prefix.
+          3. If salvaging yields nothing usable, retry once at a conservative
+             budget (max_length=160, min_length=60) less likely to degenerate.
+        """
+        if not self._model:
+            logger.warning("Summarization model not loaded - returning placeholder")
+            return "[Summary unavailable - model not loaded]"
+
+        decoded = self._bart_generate(text, max_length, min_length)
+        cleaned = _clean_bart_output(decoded)
+
+        if not _looks_garbled(cleaned):
+            return cleaned
+
+        logger.warning("BART output looked garbled; attempting to salvage prefix")
+        salvaged = _clean_bart_output(_strip_garbled_tail(cleaned))
+        if salvaged and not _looks_garbled(salvaged) and len(salvaged.split()) >= MIN_SENT_WORDS:
+            return salvaged
+
+        logger.warning("Salvage failed; retrying with conservative budget (160/60)")
+        decoded_retry = self._bart_generate(text, 160, 60)
+        return _clean_bart_output(decoded_retry)
 
     def load_model(self, path: str = None) -> None:
         path = path or self.model_path
