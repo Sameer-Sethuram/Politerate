@@ -6,6 +6,9 @@ Serves auto-generated news summaries with topic clustering and political term hi
 """
 
 import logging
+import os
+from pathlib import Path
+
 from flask import Flask, jsonify, render_template, request
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -13,11 +16,15 @@ from cache import (
     init_db,
     get_cached_summaries,
     get_cluster,
+    get_all_articles,
     is_stale,
     get_last_refresh,
     get_article_count,
     update_last_refresh,
-    clear_cache
+    clear_cache,
+    save_daily_snapshot,
+    get_snapshot,
+    list_snapshot_dates,
 )
 
 logging.basicConfig(
@@ -29,7 +36,17 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 scheduler = BackgroundScheduler()
-MODEL_PATH = "./fine_tuned_bart_news"
+
+# Resolve BART summarization model. Priority:
+#   1. POLITERATE_MODEL env var (explicit override)
+#   2. Local fine_tuned_bart_news/ if present (dev machines where you trained it)
+#   3. Hugging Face Hub repo (fresh clones auto-download)
+HF_MODEL_ID = "sameersethuram/politerate-bart-news"
+_LOCAL_MODEL_DIR = Path(__file__).resolve().parent / "fine_tuned_bart_news"
+MODEL_PATH = (
+    os.environ.get("POLITERATE_MODEL")
+    or (str(_LOCAL_MODEL_DIR) if _LOCAL_MODEL_DIR.exists() else HF_MODEL_ID)
+)
 
 _model = None
 _tokenizer = None
@@ -58,6 +75,7 @@ def run_pipeline_update():
     logger.info("Starting scheduled pipeline update...")
     try:
         pipeline = PoliteratePipeline(model_path=MODEL_PATH)
+        pipeline.load_model()
         results = pipeline.run()
 
         from cache import save_clusters
@@ -114,6 +132,16 @@ def glossary():
     return render_template("glossary.html")
 
 
+@app.route("/archive")
+def archive():
+    return render_template("archive.html")
+
+
+@app.route("/learn")
+def learn():
+    return render_template("learn.html")
+
+
 @app.route("/api/summaries")
 def get_summaries():
     if is_stale():
@@ -150,6 +178,7 @@ def get_summary(cluster_id):
 
 @app.route("/api/refresh", methods=["POST"])
 def refresh():
+    clear_cache()
     success = run_pipeline_update()
     if success:
         return jsonify({"status": "success", "message": "Summaries refreshed"})
@@ -176,12 +205,7 @@ def get_glossary():
     highlighter = TermHighlighter()
     glossary = highlighter.glossary
 
-    cached = get_cached_summaries()
-    all_articles = []
-    for cluster in cached.get("clusters", []):
-        for article in cluster.get("articles", []):
-            all_articles.append(article)
-
+    all_articles = get_all_articles()
     term_sources = highlighter.find_terms_with_sources(all_articles)
 
     terms = []
@@ -226,6 +250,41 @@ def get_categories():
     return jsonify({"categories": sorted(categories)})
 
 
+@app.route("/api/archive")
+def api_archive_list():
+    return jsonify({"snapshots": list_snapshot_dates()})
+
+
+@app.route("/api/archive/<date>")
+def api_archive_get(date):
+    snapshot = get_snapshot(date)
+    if not snapshot:
+        return jsonify({"error": "No snapshot found for that date"}), 404
+    return jsonify(snapshot)
+
+
+@app.route("/api/snapshot", methods=["POST"])
+def api_snapshot_now():
+    saved = save_daily_snapshot()
+    if saved:
+        return jsonify({"status": "success"})
+    return jsonify({"status": "empty", "message": "No clusters to snapshot"}), 400
+
+
+@app.route("/api/quiz")
+def api_quiz():
+    from politerate_quiz import build_quiz
+    count = int(request.args.get("count", 5))
+    quiz = build_quiz(get_all_articles(), count=count)
+    return jsonify(quiz)
+
+
+@app.route("/api/term-of-day")
+def api_term_of_day():
+    from politerate_quiz import pick_term_of_day
+    return jsonify(pick_term_of_day(get_all_articles()))
+
+
 @app.route("/api/summarize", methods=["POST"])
 def summarize():
     data = request.json
@@ -238,6 +297,14 @@ def summarize():
     return jsonify({"summary": summary})
 
 
+def daily_snapshot_job():
+    logger.info("Running end-of-day snapshot job...")
+    try:
+        save_daily_snapshot()
+    except Exception as e:
+        logger.error(f"Snapshot job failed: {e}")
+
+
 def start_scheduler():
     scheduler.add_job(
         func=scheduled_job,
@@ -247,8 +314,17 @@ def start_scheduler():
         name="Refresh summaries hourly",
         replace_existing=True
     )
+    scheduler.add_job(
+        func=daily_snapshot_job,
+        trigger="cron",
+        hour=23,
+        minute=55,
+        id="daily_snapshot",
+        name="End-of-day snapshot",
+        replace_existing=True
+    )
     scheduler.start()
-    logger.info("Scheduler started - pipeline will refresh hourly")
+    logger.info("Scheduler started - hourly refresh + 23:55 snapshot")
 
 
 def initialize():

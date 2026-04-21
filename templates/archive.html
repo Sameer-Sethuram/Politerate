@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>News Archive - Politerate</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f2f5;
+            color: #1c1e21;
+            line-height: 1.6;
+        }
+        header {
+            background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%);
+            color: white;
+            padding: 1.5rem 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .logo { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.5px; }
+        .header-nav { display: flex; gap: 1.5rem; align-items: center; }
+        .header-nav a {
+            color: rgba(255,255,255,0.85);
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+        .header-nav a:hover { color: white; }
+
+        main {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+            display: grid;
+            grid-template-columns: 260px 1fr;
+            gap: 2rem;
+        }
+        .sidebar {
+            background: white;
+            border-radius: 12px;
+            padding: 1.25rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            height: fit-content;
+            position: sticky;
+            top: 120px;
+        }
+        .sidebar h2 {
+            font-size: 1rem;
+            color: #1a365d;
+            margin-bottom: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .date-list { list-style: none; display: flex; flex-direction: column; gap: 0.35rem; }
+        .date-item button {
+            width: 100%;
+            text-align: left;
+            padding: 0.6rem 0.75rem;
+            border-radius: 8px;
+            border: none;
+            background: transparent;
+            color: #2d3748;
+            cursor: pointer;
+            font-size: 0.95rem;
+            font-family: inherit;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.5rem;
+            transition: background 0.15s;
+        }
+        .date-item button:hover { background: #f1f5f9; }
+        .date-item button.active { background: #2c5282; color: white; }
+        .date-item .count { font-size: 0.75rem; opacity: 0.7; }
+
+        .content {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+        .day-header {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        .day-title { font-size: 1.5rem; color: #1a365d; font-weight: 700; }
+        .day-meta {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 0.75rem;
+            flex-wrap: wrap;
+        }
+        .meta-badge {
+            background: #f1f5f9;
+            padding: 0.35rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            color: #64748b;
+        }
+        .meta-badge strong { color: #1a365d; }
+
+        .cluster-card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            padding: 1.5rem;
+        }
+        .cluster-title {
+            font-size: 1.15rem;
+            font-weight: 600;
+            color: #1a365d;
+            margin-bottom: 0.5rem;
+        }
+        .cluster-meta {
+            font-size: 0.85rem;
+            color: #64748b;
+            margin-bottom: 0.75rem;
+        }
+        .summary-text {
+            font-size: 1rem;
+            line-height: 1.7;
+            margin-bottom: 1rem;
+            color: #2d3748;
+        }
+        .politerate-term {
+            border-bottom: 2px dotted #2c5282;
+            cursor: help;
+        }
+        .politerate-term:hover { background: #ebf4ff; }
+        .sources-section {
+            border-top: 1px solid #e2e8f0;
+            padding-top: 0.75rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        .source-badge {
+            padding: 0.35rem 0.75rem;
+            background: #f1f5f9;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            text-decoration: none;
+            color: inherit;
+        }
+        .source-badge:hover { background: #e2e8f0; }
+
+        .empty, .loading {
+            background: white;
+            border-radius: 12px;
+            padding: 3rem;
+            text-align: center;
+            color: #64748b;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+        footer a { color: #2c5282; text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+
+        @media (max-width: 768px) {
+            main { grid-template-columns: 1fr; }
+            .sidebar { position: static; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <div class="logo">Politerate</div>
+            <div class="header-nav">
+                <a href="/">Today</a>
+                <a href="/learn">Learn</a>
+                <a href="/glossary">Glossary</a>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <aside class="sidebar">
+            <h2>Archive</h2>
+            <ul id="date-list" class="date-list">
+                <li class="loading" style="padding: 0.75rem; text-align: center;">Loading…</li>
+            </ul>
+        </aside>
+
+        <section class="content" id="content">
+            <div class="loading">Select a date to view that day's news.</div>
+        </section>
+    </main>
+
+    <footer>
+        <a href="/">Today's News</a> | <a href="/learn">Learn</a> | <a href="/glossary">Glossary</a>
+    </footer>
+
+    <script>
+        function formatDate(dateStr) {
+            const d = new Date(dateStr + "T12:00:00");
+            return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+        }
+
+        function escapeHtml(s) {
+            return (s || "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+        }
+
+        function renderClusters(snapshot) {
+            const content = document.getElementById("content");
+            if (!snapshot.clusters || snapshot.clusters.length === 0) {
+                content.innerHTML = `<div class="empty">No summaries saved for this day.</div>`;
+                return;
+            }
+
+            const header = `
+                <div class="day-header">
+                    <h1 class="day-title">${formatDate(snapshot.date)}</h1>
+                    <div class="day-meta">
+                        <span class="meta-badge"><strong>${snapshot.cluster_count}</strong> topics</span>
+                        <span class="meta-badge"><strong>${snapshot.article_count}</strong> articles</span>
+                        <span class="meta-badge"><strong>${snapshot.source_count}</strong> sources</span>
+                    </div>
+                </div>
+            `;
+
+            const cards = snapshot.clusters.map(cluster => {
+                const title = (cluster.titles && cluster.titles[0]) ? cluster.titles[0] : "Topic summary";
+                const sources = (cluster.sources || []).map((src, i) => {
+                    const url = (cluster.urls && cluster.urls[i]) ? cluster.urls[i] : "#";
+                    return `<a class="source-badge" href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(src)}</a>`;
+                }).join("");
+
+                return `
+                    <article class="cluster-card">
+                        <h3 class="cluster-title">${escapeHtml(title)}</h3>
+                        <div class="cluster-meta">${cluster.article_count || 0} articles</div>
+                        <div class="summary-text">${cluster.highlighted_summary || escapeHtml(cluster.summary || "")}</div>
+                        <div class="sources-section">${sources}</div>
+                    </article>
+                `;
+            }).join("");
+
+            content.innerHTML = header + cards;
+        }
+
+        async function loadSnapshot(date) {
+            const content = document.getElementById("content");
+            content.innerHTML = `<div class="loading">Loading ${formatDate(date)}…</div>`;
+            document.querySelectorAll(".date-item button").forEach(b => {
+                b.classList.toggle("active", b.dataset.date === date);
+            });
+            try {
+                const res = await fetch(`/api/archive/${date}`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const snapshot = await res.json();
+                renderClusters(snapshot);
+            } catch (err) {
+                content.innerHTML = `<div class="empty">Couldn't load that day's snapshot.</div>`;
+            }
+        }
+
+        async function loadDates() {
+            const list = document.getElementById("date-list");
+            try {
+                const res = await fetch("/api/archive");
+                const data = await res.json();
+                const snapshots = data.snapshots || [];
+                if (snapshots.length === 0) {
+                    list.innerHTML = `<li class="loading" style="padding: 0.75rem;">No archive yet. Come back tomorrow.</li>`;
+                    document.getElementById("content").innerHTML = `<div class="empty">The archive starts filling up once a day's news has been captured.</div>`;
+                    return;
+                }
+                list.innerHTML = snapshots.map(s => `
+                    <li class="date-item">
+                        <button data-date="${s.date}">
+                            <span>${formatDate(s.date)}</span>
+                            <span class="count">${s.cluster_count || 0} topics</span>
+                        </button>
+                    </li>
+                `).join("");
+                list.querySelectorAll("button").forEach(btn => {
+                    btn.addEventListener("click", () => loadSnapshot(btn.dataset.date));
+                });
+                loadSnapshot(snapshots[0].date);
+            } catch (err) {
+                list.innerHTML = `<li class="loading" style="padding: 0.75rem;">Failed to load archive.</li>`;
+            }
+        }
+
+        document.addEventListener("DOMContentLoaded", loadDates);
+    </script>
+</body>
+</html>

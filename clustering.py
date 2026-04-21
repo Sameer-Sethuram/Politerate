@@ -126,11 +126,13 @@ class ArticleClusterer:
         singleton_count = 0
         for cluster_id, indices in enumerate(cluster_indices):
             cluster_articles = [articles[i] for i in indices]
-            if len(cluster_articles) >= self.min_cluster_size:
+            unique_sources = {a.get("source", "unknown") for a in cluster_articles}
+            if len(cluster_articles) >= self.min_cluster_size and len(unique_sources) >= 2:
                 result[cluster_id] = cluster_articles
-            elif len(cluster_articles) == 1:
-                result[f"singleton_{singleton_count}"] = cluster_articles
-                singleton_count += 1
+            else:
+                for article in cluster_articles:
+                    result[f"singleton_{singleton_count}"] = [article]
+                    singleton_count += 1
 
         logger.info(f"Created {len(result)} clusters from {len(articles)} articles")
 

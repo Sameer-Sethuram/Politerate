@@ -73,11 +73,46 @@ def init_db() -> None:
     """)
 
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS seen_urls (
+            url TEXT PRIMARY KEY,
+            first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS scraped_articles_archive (
+            url TEXT PRIMARY KEY,
+            title TEXT,
+            source TEXT,
+            text TEXT,
+            authors TEXT,
+            publish_date TEXT,
+            scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS daily_snapshots (
+            snapshot_date TEXT PRIMARY KEY,
+            snapshot_json TEXT,
+            article_count INTEGER,
+            cluster_count INTEGER,
+            source_count INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_articles_cluster ON articles(cluster_id)
     """)
 
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_articles_source ON articles(source)
+    """)
+
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_archive_scraped_at ON scraped_articles_archive(scraped_at)
     """)
 
     conn.commit()
@@ -127,6 +162,9 @@ def save_clusters(clusters: list[dict]) -> int:
     conn = get_connection()
     cursor = conn.cursor()
     saved = 0
+
+    cursor.execute("DELETE FROM clusters")
+    cursor.execute("DELETE FROM articles")
 
     for cluster in clusters:
         cursor.execute("""
@@ -282,6 +320,27 @@ def get_cluster(cluster_id: str) -> Optional[dict]:
     return cluster
 
 
+def get_all_articles() -> list[dict]:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT url, title, source, text, cluster_id
+        FROM articles
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return [
+        {
+            "url": r["url"],
+            "title": r["title"],
+            "source": r["source"],
+            "text": r["text"],
+            "cluster_id": r["cluster_id"],
+        }
+        for r in rows
+    ]
+
+
 def get_article_count() -> int:
     conn = get_connection()
     cursor = conn.cursor()
@@ -299,6 +358,220 @@ def clear_cache() -> None:
     conn.commit()
     conn.close()
     logger.info("Cache cleared")
+
+
+def filter_unseen_urls(urls: list[str]) -> list[str]:
+    if not urls:
+        return []
+    conn = get_connection()
+    cursor = conn.cursor()
+    placeholders = ",".join("?" * len(urls))
+    cursor.execute(
+        f"SELECT url FROM seen_urls WHERE url IN ({placeholders})",
+        urls
+    )
+    seen = {row["url"] for row in cursor.fetchall()}
+    conn.close()
+    return [u for u in urls if u not in seen]
+
+
+def mark_urls_seen(urls: list[str]) -> None:
+    if not urls:
+        return
+    conn = get_connection()
+    cursor = conn.cursor()
+    now = datetime.now().isoformat()
+    for url in urls:
+        cursor.execute("""
+            INSERT INTO seen_urls (url, first_seen, last_seen) VALUES (?, ?, ?)
+            ON CONFLICT(url) DO UPDATE SET last_seen = excluded.last_seen
+        """, (url, now, now))
+    conn.commit()
+    conn.close()
+
+
+def archive_articles(articles: list[dict]) -> int:
+    if not articles:
+        return 0
+    conn = get_connection()
+    cursor = conn.cursor()
+    now = datetime.now().isoformat()
+    saved = 0
+    for a in articles:
+        url = a.get("url", "")
+        if not url:
+            continue
+        authors = a.get("authors") or []
+        authors_str = json.dumps(authors) if isinstance(authors, list) else str(authors)
+        publish_date = a.get("publish_date")
+        publish_date_str = publish_date.isoformat() if hasattr(publish_date, "isoformat") else (publish_date or "")
+        cursor.execute("""
+            INSERT INTO scraped_articles_archive
+            (url, title, source, text, authors, publish_date, scraped_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(url) DO UPDATE SET
+                title = excluded.title,
+                source = excluded.source,
+                text = excluded.text,
+                authors = excluded.authors,
+                publish_date = excluded.publish_date
+        """, (
+            url,
+            a.get("title", ""),
+            a.get("source", "unknown"),
+            a.get("text", ""),
+            authors_str,
+            publish_date_str,
+            now
+        ))
+        saved += 1
+    conn.commit()
+    conn.close()
+    return saved
+
+
+def get_archived_articles(urls: list[str]) -> dict:
+    """Return {url: article_dict} for any URLs present in the archive."""
+    if not urls:
+        return {}
+    conn = get_connection()
+    cursor = conn.cursor()
+    placeholders = ",".join("?" * len(urls))
+    cursor.execute(
+        f"""SELECT url, title, source, text, authors, publish_date, scraped_at
+            FROM scraped_articles_archive WHERE url IN ({placeholders})""",
+        urls
+    )
+    out = {}
+    for row in cursor.fetchall():
+        try:
+            authors = json.loads(row["authors"]) if row["authors"] else []
+        except (ValueError, TypeError):
+            authors = []
+        out[row["url"]] = {
+            "url": row["url"],
+            "title": row["title"],
+            "source": row["source"],
+            "text": row["text"],
+            "authors": authors,
+            "publish_date": row["publish_date"],
+            "scraped_at": row["scraped_at"],
+        }
+    conn.close()
+    return out
+
+
+def prune_archive(days: int = 7) -> int:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        DELETE FROM scraped_articles_archive
+        WHERE scraped_at < datetime('now', ?)
+    """, (f"-{days} days",))
+    removed = cursor.rowcount
+    conn.commit()
+    conn.close()
+    if removed:
+        logger.info(f"Pruned {removed} articles older than {days} days from archive")
+    return removed
+
+
+def save_daily_snapshot(date_str: Optional[str] = None) -> bool:
+    """Persist today's cluster state into daily_snapshots. Re-callable (UPSERT)."""
+    if date_str is None:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+
+    cached = get_cached_summaries()
+    clusters = cached.get("clusters", [])
+
+    if not clusters:
+        logger.info(f"No clusters to snapshot for {date_str}")
+        return False
+
+    all_sources = set()
+    total_articles = 0
+    for c in clusters:
+        all_sources.update(c.get("sources", []))
+        total_articles += c.get("article_count", 0)
+
+    snapshot_payload = {
+        "date": date_str,
+        "clusters": clusters,
+        "last_updated": cached.get("last_updated"),
+    }
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO daily_snapshots
+        (snapshot_date, snapshot_json, article_count, cluster_count, source_count, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(snapshot_date) DO UPDATE SET
+            snapshot_json = excluded.snapshot_json,
+            article_count = excluded.article_count,
+            cluster_count = excluded.cluster_count,
+            source_count = excluded.source_count,
+            created_at = excluded.created_at
+    """, (
+        date_str,
+        json.dumps(snapshot_payload),
+        total_articles,
+        len(clusters),
+        len(all_sources),
+        datetime.now().isoformat(),
+    ))
+    conn.commit()
+    conn.close()
+    logger.info(f"Saved daily snapshot for {date_str}: {len(clusters)} clusters, {total_articles} articles")
+    return True
+
+
+def get_snapshot(date_str: str) -> Optional[dict]:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT snapshot_date, snapshot_json, article_count, cluster_count, source_count, created_at
+        FROM daily_snapshots WHERE snapshot_date = ?
+    """, (date_str,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return None
+    try:
+        payload = json.loads(row["snapshot_json"])
+    except (ValueError, TypeError):
+        payload = {"clusters": []}
+    return {
+        "date": row["snapshot_date"],
+        "clusters": payload.get("clusters", []),
+        "article_count": row["article_count"],
+        "cluster_count": row["cluster_count"],
+        "source_count": row["source_count"],
+        "created_at": row["created_at"],
+        "last_updated": payload.get("last_updated"),
+    }
+
+
+def list_snapshot_dates() -> list[dict]:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT snapshot_date, article_count, cluster_count, source_count, created_at
+        FROM daily_snapshots
+        ORDER BY snapshot_date DESC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return [
+        {
+            "date": r["snapshot_date"],
+            "article_count": r["article_count"],
+            "cluster_count": r["cluster_count"],
+            "source_count": r["source_count"],
+            "created_at": r["created_at"],
+        }
+        for r in rows
+    ]
 
 
 if __name__ == "__main__":

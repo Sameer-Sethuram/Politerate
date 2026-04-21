@@ -212,18 +212,87 @@ class PoliteratePipeline:
                 "titles": [a.get("title") for a in articles],
                 "summary": summary,
                 "highlighted_summary": highlighted_summary,
-                "defined_terms": terms
+                "defined_terms": terms,
+                "articles": articles
             })
 
         return results
 
+    def _build_raw_articles_with_dedup(self) -> dict:
+        """Fetch RSS links, download only new URLs, merge with archive. Returns {source: {url: article}}."""
+        try:
+            from rss_link_scraper import get_all_top_story_links
+            from webscraper import scrape_articles_by_source
+        except ImportError as e:
+            logger.error(f"Import error: {e}")
+            return {}
+
+        from cache import (
+            filter_unseen_urls,
+            mark_urls_seen,
+            archive_articles,
+            get_archived_articles,
+            prune_archive,
+        )
+
+        prune_archive(days=7)
+
+        links_by_source = get_all_top_story_links()
+        all_urls = [u for urls in links_by_source.values() for u in urls]
+        unseen = set(filter_unseen_urls(all_urls))
+
+        logger.info(f"RSS URLs total={len(all_urls)}, unseen={len(unseen)}")
+
+        if unseen:
+            new_links = {
+                s: [u for u in urls if u in unseen]
+                for s, urls in links_by_source.items()
+            }
+            new_links = {s: urls for s, urls in new_links.items() if urls}
+
+            logger.info(f"Downloading {sum(len(v) for v in new_links.values())} new articles")
+            newly_scraped = scrape_articles_by_source(new_links)
+
+            flat_new = []
+            for source, url_to_article in newly_scraped.items():
+                for url, article in url_to_article.items():
+                    if article is None:
+                        continue
+                    article["source"] = source
+                    article["url"] = url
+                    flat_new.append(article)
+
+            if flat_new:
+                archive_articles(flat_new)
+                mark_urls_seen([a["url"] for a in flat_new])
+        else:
+            logger.info("No new URLs — serving entirely from archive")
+
+        archived = get_archived_articles(all_urls)
+
+        raw_articles = {}
+        for source, urls in links_by_source.items():
+            source_dict = {}
+            for url in urls:
+                if url in archived:
+                    art = archived[url].copy()
+                    art["source"] = source
+                    source_dict[url] = art
+            if source_dict:
+                raw_articles[source] = source_dict
+
+        return raw_articles
+
     def run(self, scraped_articles: dict = None) -> dict:
         logger.info("Starting Politerate Pipeline")
 
-        if scraped_articles is None:
-            raw_articles = self.scrape()
-        else:
+        if self.model_path and not self._model:
+            self.load_model()
+
+        if scraped_articles is not None:
             raw_articles = scraped_articles
+        else:
+            raw_articles = self._build_raw_articles_with_dedup()
 
         flat_articles = []
         for source, articles in raw_articles.items():
