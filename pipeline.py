@@ -171,7 +171,7 @@ class PoliteratePipeline:
         logger.info(f"Credibility filter: {len(passed)} passed, {len(failed)} filtered")
         return passed, failed
 
-    def summarize(self, text: str, max_length: int = 180, min_length: int = 60) -> str:
+    def summarize(self, text: str, max_length: int = 260, min_length: int = 100) -> str:
         if not self._model:
             logger.warning("Summarization model not loaded - returning placeholder")
             return "[Summary unavailable - model not loaded]"
