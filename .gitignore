@@ -1,0 +1,30 @@
+# Model weights (large binary files)
+backend/models/*.pt
+backend/models/*.bin
+backend/models/*.safetensors
+
+# Database
+backend/data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+build/
+
+# Environment
+.env
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
