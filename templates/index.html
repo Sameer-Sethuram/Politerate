@@ -106,8 +106,15 @@
 
         const sourcesHtml = cluster.sources.map((source, i) => {
             const url = (cluster.urls && cluster.urls[i]) ? cluster.urls[i] : '#';
-            const score = cluster.defined_terms && cluster.defined_terms.length > 0 ? 0.85 : 0.9;
-            const cred = formatCredibilityScore(score);
+            const credData = (cluster.source_credibility && cluster.source_credibility[i]) || {};
+            const rawScore = (credData.score !== null && credData.score !== undefined) ? credData.score : null;
+            if (rawScore === null) {
+                return `
+                    <a href="${url}" target="_blank" rel="noopener noreferrer" class="source-badge">
+                        <span>${source}</span>
+                    </a>`;
+            }
+            const cred = formatCredibilityScore(rawScore);
             return `
                 <a href="${url}" target="_blank" rel="noopener noreferrer" class="source-badge">
                     <span>${source}</span>
@@ -124,11 +131,12 @@
                </div>`
             : '';
 
+        const detailHref = `/cluster/${encodeURIComponent(cluster.cluster_id)}`;
         card.innerHTML = `
             <div class="cluster__head">
                 <div class="cluster__icon">${icon}</div>
                 <div>
-                    <div class="cluster__title">${title}</div>
+                    <div class="cluster__title"><a href="${detailHref}" class="cluster__title-link">${title}</a></div>
                     <div class="cluster__meta">${cluster.article_count} article${cluster.article_count > 1 ? 's' : ''}</div>
                 </div>
             </div>
@@ -138,6 +146,9 @@
                 <div class="sources-list">${sourcesHtml}</div>
             </div>
             ${termsHtml}
+            <div style="margin-top: 1rem; text-align: right;">
+                <a href="${detailHref}" class="cluster__detail-link">Full breakdown &rarr;</a>
+            </div>
         `;
         return card;
     }

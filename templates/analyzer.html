@@ -1,0 +1,337 @@
+{% extends "base.html" %}
+{% set active = "analyzer" %}
+
+{% block title %}Text Analyzer — Politerate{% endblock %}
+
+{% block page_styles %}
+    .analyzer-head { margin-bottom: 1.75rem; }
+    .analyzer-head h1 { font-size: 1.9rem; margin-bottom: 0.35rem; }
+    .analyzer-head p { color: var(--text-muted); }
+    .powered-by {
+        margin-top: 0.9rem;
+        padding: 0.75rem 1rem;
+        background: var(--action-soft);
+        border: 1px solid transparent;
+        border-radius: var(--radius-sm);
+        color: var(--action-hover);
+        font-size: 0.9rem;
+    }
+    .powered-by strong { color: var(--action-hover); }
+
+    .analyzer-input-card { margin-bottom: 1.5rem; }
+    .analyzer-input-card label {
+        display: block;
+        font-size: 0.82rem;
+        font-weight: 500;
+        color: var(--text-muted);
+        margin-bottom: 0.4rem;
+    }
+    .analyzer-input-card textarea {
+        width: 100%;
+        min-height: 240px;
+        padding: 0.75rem 0.9rem;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        font-family: inherit;
+        font-size: 0.95rem;
+        color: var(--text);
+        resize: vertical;
+        transition: border-color var(--transition), box-shadow var(--transition);
+    }
+    .analyzer-input-card textarea:focus {
+        outline: none;
+        border-color: var(--action);
+        box-shadow: 0 0 0 3px var(--action-ring);
+    }
+    .analyzer-input-card input[type="url"] {
+        width: 100%;
+        padding: 0.6rem 0.9rem;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        font-size: 0.9rem;
+        font-family: inherit;
+        margin-bottom: 0.9rem;
+    }
+    .analyzer-input-card input[type="url"]:focus {
+        outline: none;
+        border-color: var(--action);
+        box-shadow: 0 0 0 3px var(--action-ring);
+    }
+    .char-count { font-size: 0.78rem; color: var(--text-subtle); margin-top: 0.3rem; }
+    .analyzer-actions {
+        display: flex;
+        gap: 0.6rem;
+        margin-top: 0.85rem;
+        flex-wrap: wrap;
+    }
+
+    .article-summary {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin-bottom: 1.25rem;
+    }
+    @media (max-width: 640px) { .article-summary { grid-template-columns: 1fr; } }
+    .article-summary__cell {
+        background: var(--surface-soft);
+        padding: 0.85rem 1rem;
+        border-radius: var(--radius-sm);
+    }
+    .article-summary__label {
+        font-size: 0.72rem;
+        color: var(--text-subtle);
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        font-weight: 600;
+        margin-bottom: 0.45rem;
+    }
+
+    .technique-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .technique-chip {
+        background: var(--action-soft);
+        color: var(--action-hover);
+        padding: 0.2rem 0.65rem;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 500;
+    }
+    .technique-chip__count {
+        font-size: 0.72rem;
+        opacity: 0.7;
+        margin-left: 0.25rem;
+    }
+
+    .emotion-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.28rem 0.7rem;
+        border-radius: 999px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+    .emo-neutral      { background: #f3f4f6; color: #4b5563; }
+    .emo-anger        { background: #fee2e2; color: #991b1b; }
+    .emo-fear         { background: #fef3c7; color: #92400e; }
+    .emo-sadness      { background: #dbeafe; color: #1e40af; }
+    .emo-joy          { background: #d1fae5; color: #065f46; }
+    .emo-approval     { background: #dcfce7; color: #065f46; }
+    .emo-disapproval  { background: #fce7f3; color: #9d174d; }
+    .emo-disgust      { background: #f3e8ff; color: #6b21a8; }
+    .emo-annoyance    { background: #ffedd5; color: #9a3412; }
+    .emo-optimism     { background: #e0f2fe; color: #075985; }
+    .emo-confusion    { background: #f1f5f9; color: #475569; }
+
+    .chunks-heading {
+        font-size: 0.75rem;
+        color: var(--text-subtle);
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        font-weight: 700;
+        margin: 1.5rem 0 0.75rem;
+    }
+    .chunk-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-left: 4px solid var(--border);
+        border-radius: var(--radius-sm);
+        padding: 0.9rem 1.1rem;
+        margin-bottom: 0.85rem;
+    }
+    .chunk-card[data-emotion="anger"]       { border-left-color: #dc2626; }
+    .chunk-card[data-emotion="fear"]        { border-left-color: #d97706; }
+    .chunk-card[data-emotion="sadness"]     { border-left-color: #2563eb; }
+    .chunk-card[data-emotion="joy"]         { border-left-color: #16a34a; }
+    .chunk-card[data-emotion="approval"]    { border-left-color: #16a34a; }
+    .chunk-card[data-emotion="disapproval"] { border-left-color: #db2777; }
+    .chunk-card[data-emotion="disgust"]     { border-left-color: #9333ea; }
+    .chunk-card[data-emotion="annoyance"]   { border-left-color: #ea580c; }
+    .chunk-card[data-emotion="optimism"]    { border-left-color: #0284c7; }
+
+    .chunk-text { color: var(--text); line-height: 1.65; margin-bottom: 0.6rem; font-size: 0.95rem; }
+    .chunk-meta {
+        display: flex;
+        gap: 0.6rem;
+        align-items: center;
+        flex-wrap: wrap;
+        font-size: 0.78rem;
+        color: var(--text-muted);
+    }
+    .chunk-meta__dot { color: var(--text-subtle); }
+{% endblock %}
+
+{% block main %}
+<main class="is-narrow">
+    <header class="analyzer-head">
+        <h1>Text Analyzer</h1>
+        <p>Paste any article or excerpt. Politerate flags emotion, persuasion techniques, subjectivity, and political lean — chunk by chunk.</p>
+        <div class="powered-by"><strong>Powered by multi-head DeBERTa:</strong> 18 persuasion-technique heads + 28-class emotion + subjectivity + 3-way bias (left / center / right).</div>
+    </header>
+
+    <section class="card analyzer-input-card">
+        <label for="analyzer-url">Article URL <span style="color: var(--text-subtle); font-weight: 400;">(optional — enables caching)</span></label>
+        <input type="url" id="analyzer-url" placeholder="https://example.com/article">
+
+        <label for="analyzer-text">Article text</label>
+        <textarea id="analyzer-text" placeholder="Paste article text here…"></textarea>
+        <div class="char-count"><span id="char-count">0</span> / 50,000 characters <span id="min-hint" style="color: var(--danger); display: none;"> · (minimum 50)</span></div>
+
+        <div class="analyzer-actions">
+            <button class="btn btn-primary" id="analyze-btn">Analyze text</button>
+            <button class="btn btn-ghost" id="sample-btn">Load sample</button>
+            <button class="btn btn-ghost" id="clear-btn">Clear</button>
+        </div>
+    </section>
+
+    <section id="result-area"></section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const SAMPLE_TEXT = "The devastating new policy is clearly an outrageous attack on freedom. Everyone knows this is a radical scheme that experts say will have catastrophic consequences. Studies show that this terrible decision was made without proper consideration. The fact is, they don't want you to know the truth about this shocking development. Bipartisan support has been lacking, and according to recent research, moderate lawmakers remain skeptical of the proposed changes. Some have called the plan so-called compromise legislation that either you accept or you reject — there's no middle ground, proponents insist.";
+
+    const textarea = document.getElementById('analyzer-text');
+    const charCount = document.getElementById('char-count');
+    const minHint = document.getElementById('min-hint');
+    const urlInput = document.getElementById('analyzer-url');
+    const result = document.getElementById('result-area');
+
+    function escapeHtml(s) {
+        return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    function updateCount() {
+        const n = textarea.value.length;
+        charCount.textContent = n.toLocaleString();
+        minHint.style.display = (n > 0 && n < 50) ? 'inline' : 'none';
+    }
+    textarea.addEventListener('input', updateCount);
+
+    document.getElementById('sample-btn').addEventListener('click', () => {
+        textarea.value = SAMPLE_TEXT;
+        updateCount();
+    });
+    document.getElementById('clear-btn').addEventListener('click', () => {
+        textarea.value = '';
+        urlInput.value = '';
+        result.innerHTML = '';
+        updateCount();
+    });
+
+    function biasIndicator(bias) {
+        const segs = ['left', 'center', 'right'].map(t =>
+            `<span class="bias-indicator__seg bias-indicator__seg--${t}${t===bias?' is-active':''}"></span>`
+        ).join('');
+        const cap = bias ? bias[0].toUpperCase() + bias.slice(1) : '—';
+        return `<span class="bias-indicator" data-bias="${bias}">
+            <span class="bias-indicator__bar">${segs}</span>
+            <span class="bias-indicator__label bias-indicator__label--${bias}">${cap}</span>
+        </span>`;
+    }
+
+    function trustScore(value) {
+        const v = Math.max(0, Math.min(100, Math.round(value)));
+        const tier = v >= 85 ? 'high' : (v >= 70 ? 'medium' : 'low');
+        return `<span class="trust-score" data-tier="${tier}">
+            <span class="trust-score__track">
+                <span class="trust-score__fill trust-score__fill--${tier}" style="width: ${v}%"></span>
+            </span>
+            <span class="trust-score__label trust-score__label--${tier}">${v}/100</span>
+        </span>`;
+    }
+
+    function formatTechnique(label) { return label.replace(/_/g, ' '); }
+
+    function renderResult(data) {
+        const a = data.article || {};
+        const chunks = data.chunks || [];
+        const cached = data.cached ? ' <span class="badge badge--accent" style="margin-left: 0.5rem;">cached</span>' : '';
+
+        const techniqueSummary = Object.entries(a.technique_counts || {})
+            .sort((x, y) => y[1] - x[1])
+            .map(([label, count]) => `<span class="technique-chip">${escapeHtml(formatTechnique(label))}<span class="technique-chip__count">×${count}</span></span>`)
+            .join('') || '<span style="color: var(--text-subtle); font-size: 0.85rem;">None detected</span>';
+
+        const emotionClass = 'emo-' + (a.dominant_emotion || 'neutral');
+        const subjPct = Math.round(100 * (a.subjectivity_ratio || 0));
+
+        const articleCard = `
+            <section class="card card--feature" style="margin-bottom: 1rem;">
+                <header class="brief__head">
+                    <h2 class="brief__title">Article analysis${cached}</h2>
+                    <div class="brief__meta">
+                        <span class="badge"><strong>${chunks.length}</strong>&nbsp;chunks</span>
+                        <span class="badge">model: <strong>${escapeHtml(data.model_version || '—')}</strong></span>
+                    </div>
+                </header>
+                <div class="article-summary">
+                    <div class="article-summary__cell">
+                        <div class="article-summary__label">Dominant bias</div>
+                        ${biasIndicator(a.dominant_bias || 'center')}
+                    </div>
+                    <div class="article-summary__cell">
+                        <div class="article-summary__label">Dominant emotion</div>
+                        <span class="emotion-badge ${emotionClass}">${escapeHtml(a.dominant_emotion || 'neutral')}</span>
+                    </div>
+                    <div class="article-summary__cell">
+                        <div class="article-summary__label">Subjectivity</div>
+                        ${trustScore(subjPct)}
+                    </div>
+                    <div class="article-summary__cell">
+                        <div class="article-summary__label">Techniques detected</div>
+                        <div class="technique-chips">${techniqueSummary}</div>
+                    </div>
+                </div>
+            </section>
+        `;
+
+        const chunkCards = chunks.map(c => {
+            const techniques = (c.techniques || []).map(t =>
+                `<span class="technique-chip" title="confidence: ${(t.confidence*100).toFixed(0)}%">${escapeHtml(formatTechnique(t.label))}</span>`
+            ).join('');
+            const techStr = techniques || '<span style="color: var(--text-subtle);">no techniques flagged</span>';
+            return `
+                <div class="chunk-card" data-emotion="${escapeHtml(c.emotion || 'neutral')}">
+                    <div class="chunk-text">${escapeHtml(c.text)}</div>
+                    <div class="chunk-meta">
+                        <span class="emotion-badge emo-${escapeHtml(c.emotion || 'neutral')}">${escapeHtml(c.emotion || 'neutral')}</span>
+                        ${biasIndicator(c.bias || 'center')}
+                        <span class="chunk-meta__dot">·</span>
+                        <span>${c.subjective ? 'subjective' : 'objective'}</span>
+                        <span class="chunk-meta__dot">·</span>
+                        <span class="technique-chips" style="display: inline-flex;">${techStr}</span>
+                    </div>
+                </div>`;
+        }).join('');
+
+        result.innerHTML = articleCard
+            + (chunks.length ? `<h3 class="chunks-heading">Chunk-by-chunk breakdown</h3>` + chunkCards : '');
+    }
+
+    async function runAnalyze() {
+        const text = textarea.value.trim();
+        if (text.length < 50) {
+            result.innerHTML = `<div class="state" style="color: var(--danger);">Text must be at least 50 characters.</div>`;
+            return;
+        }
+        result.innerHTML = `<div class="state"><div class="spinner"></div>Analyzing…</div>`;
+        try {
+            const res = await fetch('/api/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text, url: urlInput.value.trim() || null }),
+            });
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                throw new Error(body.error || `HTTP ${res.status}`);
+            }
+            renderResult(await res.json());
+        } catch (e) {
+            result.innerHTML = `<div class="state" style="color: var(--danger);">Analysis failed: ${escapeHtml(e.message)}</div>`;
+        }
+    }
+
+    document.getElementById('analyze-btn').addEventListener('click', runAnalyze);
+</script>
+{% endblock %}

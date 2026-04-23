@@ -1,0 +1,424 @@
+{% extends "base.html" %}
+{% set active = "today" %}
+
+{% block title %}{{ (cluster.titles[0] if cluster and cluster.titles else 'Topic') }} — Politerate{% endblock %}
+
+{% block disclaimer %}
+<div class="ai-banner" role="note">
+    <span class="ai-banner__inner">&#9888; Summaries and per-article analysis on this page are AI-generated &mdash; verify against linked sources before sharing.</span>
+</div>
+{% endblock %}
+
+{% block page_styles %}
+    .cluster-detail-head { margin-bottom: 1.5rem; }
+    .cluster-detail-head .back-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        text-decoration: none;
+        margin-bottom: 0.9rem;
+    }
+    .cluster-detail-head .back-link:hover { color: var(--action-hover); }
+
+    .cluster-detail-head h1 {
+        font-size: 1.9rem;
+        line-height: 1.25;
+        margin-bottom: 0.45rem;
+        color: var(--brand-dark);
+    }
+    .cluster-detail-head .meta {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .cluster-summary-card { margin-bottom: 1.5rem; }
+    .cluster-summary-card .cluster__summary { font-size: 1rem; line-height: 1.65; }
+
+    .source-strip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 1rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border);
+    }
+
+    .articles-heading {
+        font-size: 0.78rem;
+        color: var(--text-subtle);
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        font-weight: 700;
+        margin: 1.75rem 0 0.85rem;
+    }
+
+    .article-block {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 1.1rem 1.25rem;
+        margin-bottom: 1rem;
+    }
+    .article-block__head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 1rem;
+        margin-bottom: 0.8rem;
+        flex-wrap: wrap;
+    }
+    .article-block__head h3 {
+        font-size: 1.05rem;
+        line-height: 1.35;
+        margin-bottom: 0.35rem;
+    }
+    .article-block__head h3 a { color: var(--brand-dark); text-decoration: none; }
+    .article-block__head h3 a:hover { color: var(--action-hover); text-decoration: underline; }
+    .article-block__meta {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .article-summary {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+    }
+    @media (max-width: 640px) { .article-summary { grid-template-columns: 1fr; } }
+    .article-summary__cell {
+        background: var(--surface-soft);
+        padding: 0.7rem 0.85rem;
+        border-radius: var(--radius-sm);
+    }
+    .article-summary__label {
+        font-size: 0.7rem;
+        color: var(--text-subtle);
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        font-weight: 600;
+        margin-bottom: 0.4rem;
+    }
+
+    .technique-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+    .technique-chip {
+        background: var(--action-soft);
+        color: var(--action-hover);
+        padding: 0.15rem 0.55rem;
+        border-radius: 999px;
+        font-size: 0.74rem;
+        font-weight: 500;
+    }
+
+    .emotion-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.22rem 0.6rem;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    .emo-neutral      { background: #f3f4f6; color: #4b5563; }
+    .emo-anger        { background: #fee2e2; color: #991b1b; }
+    .emo-fear         { background: #fef3c7; color: #92400e; }
+    .emo-sadness      { background: #dbeafe; color: #1e40af; }
+    .emo-joy          { background: #d1fae5; color: #065f46; }
+    .emo-approval     { background: #dcfce7; color: #065f46; }
+    .emo-disapproval  { background: #fce7f3; color: #9d174d; }
+    .emo-disgust      { background: #f3e8ff; color: #6b21a8; }
+    .emo-annoyance    { background: #ffedd5; color: #9a3412; }
+    .emo-optimism     { background: #e0f2fe; color: #075985; }
+    .emo-confusion    { background: #f1f5f9; color: #475569; }
+
+    .chunk-card {
+        background: var(--surface-soft);
+        border-left: 3px solid var(--border);
+        border-radius: var(--radius-sm);
+        padding: 0.7rem 0.9rem;
+        margin-bottom: 0.55rem;
+    }
+    .chunk-card[data-emotion="anger"]       { border-left-color: #dc2626; }
+    .chunk-card[data-emotion="fear"]        { border-left-color: #d97706; }
+    .chunk-card[data-emotion="sadness"]     { border-left-color: #2563eb; }
+    .chunk-card[data-emotion="joy"]         { border-left-color: #16a34a; }
+    .chunk-card[data-emotion="approval"]    { border-left-color: #16a34a; }
+    .chunk-card[data-emotion="disapproval"] { border-left-color: #db2777; }
+    .chunk-card[data-emotion="disgust"]     { border-left-color: #9333ea; }
+    .chunk-card[data-emotion="annoyance"]   { border-left-color: #ea580c; }
+    .chunk-card[data-emotion="optimism"]    { border-left-color: #0284c7; }
+
+    .chunk-text { color: var(--text); line-height: 1.6; margin-bottom: 0.45rem; font-size: 0.92rem; }
+    .chunk-meta {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        flex-wrap: wrap;
+        font-size: 0.72rem;
+        color: var(--text-muted);
+    }
+    .chunks-toggle {
+        background: none;
+        border: none;
+        color: var(--action-hover);
+        font-size: 0.82rem;
+        font-weight: 500;
+        padding: 0.25rem 0;
+        cursor: pointer;
+        margin-top: 0.25rem;
+    }
+    .chunks-toggle:hover { text-decoration: underline; }
+
+    .chunks-empty {
+        padding: 0.6rem 0.85rem;
+        color: var(--text-subtle);
+        font-size: 0.85rem;
+    }
+
+    .analysis-pending {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        color: var(--text-subtle);
+        font-size: 0.82rem;
+        margin-bottom: 0.5rem;
+    }
+    .analysis-pending .spinner {
+        width: 14px;
+        height: 14px;
+        border-width: 2px;
+        margin: 0;
+    }
+{% endblock %}
+
+{% block content %}
+{% if not cluster %}
+    <section class="state">
+        <h2 style="margin-bottom: 0.5rem;">Topic not found</h2>
+        <p style="color: var(--text-muted); margin-bottom: 1rem;">Cluster <code>{{ cluster_id }}</code> is not in the current snapshot.</p>
+        <a href="/" class="btn btn-primary">Back to Today</a>
+    </section>
+{% else %}
+<div class="cluster-detail-head">
+    <a href="/" class="back-link">&larr; Back to Today</a>
+    <h1>{{ cluster.titles[0] if cluster.titles else 'Topic summary' }}</h1>
+    <div class="meta">
+        <span class="badge"><strong>{{ cluster.article_count }}</strong>&nbsp;article{{ 's' if cluster.article_count != 1 else '' }}</span>
+        <span class="badge"><strong>{{ cluster.sources|length }}</strong>&nbsp;source{{ 's' if cluster.sources|length != 1 else '' }}</span>
+        {% if cluster.defined_terms %}
+        <span class="badge"><strong>{{ cluster.defined_terms|length }}</strong>&nbsp;key term{{ 's' if cluster.defined_terms|length != 1 else '' }}</span>
+        {% endif %}
+    </div>
+</div>
+
+<article class="card card--feature cluster-summary-card">
+    <div class="cluster__summary">{{ cluster.highlighted_summary|safe if cluster.highlighted_summary else cluster.summary }}</div>
+
+    {% if cluster.defined_terms %}
+    <div class="terms-section" style="margin-top: 1rem;">
+        <div class="terms-label">Key terms</div>
+        <div class="terms-list">
+            {% for t in cluster.defined_terms %}
+            <span class="term-tag" title="{{ t.definition }}">{{ t.term }}</span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="source-strip">
+        {% for article in cluster.articles %}
+        <a href="{{ article.url }}" target="_blank" rel="noopener noreferrer" class="source-badge">
+            <span>{{ article.source }}</span>
+        </a>
+        {% endfor %}
+    </div>
+</article>
+
+<h2 class="articles-heading">Per-article breakdown</h2>
+
+<div id="articles-container">
+    {% for article in cluster.articles %}
+    <section class="article-block" data-url="{{ article.url }}">
+        <div class="article-block__head">
+            <div>
+                <h3><a href="{{ article.url }}" target="_blank" rel="noopener noreferrer">{{ article.title or 'Untitled' }}</a></h3>
+                <div class="article-block__meta">
+                    <strong>{{ article.source }}</strong>
+                    {% if article.credibility_score is not none %}
+                    <span>&middot;</span>
+                    <span>credibility <strong>{{ '%.2f'|format(article.credibility_score) }}</strong></span>
+                    {% endif %}
+                    {% if article.credibility_label and article.credibility_label != 'unknown' %}
+                    <span>&middot;</span>
+                    <span>bias <strong>{{ article.credibility_label }}</strong></span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="analysis-slot" data-url="{{ article.url }}">
+            <div class="analysis-pending">
+                <div class="spinner"></div>
+                <span>Running analyzer&hellip;</span>
+            </div>
+        </div>
+    </section>
+    {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if cluster %}
+<script>
+    const CLUSTER_ID = {{ cluster_id|tojson }};
+
+    function escapeHtml(s) {
+        return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function formatTechnique(label) { return label.replace(/_/g, ' '); }
+
+    function biasIndicator(bias) {
+        const segs = ['left', 'center', 'right'].map(t =>
+            `<span class="bias-indicator__seg bias-indicator__seg--${t}${t===bias?' is-active':''}"></span>`
+        ).join('');
+        const cap = bias ? bias[0].toUpperCase() + bias.slice(1) : '—';
+        return `<span class="bias-indicator" data-bias="${bias}">
+            <span class="bias-indicator__bar">${segs}</span>
+            <span class="bias-indicator__label bias-indicator__label--${bias}">${cap}</span>
+        </span>`;
+    }
+
+    function trustScore(value) {
+        const v = Math.max(0, Math.min(100, Math.round(value)));
+        const tier = v >= 85 ? 'high' : (v >= 70 ? 'medium' : 'low');
+        return `<span class="trust-score" data-tier="${tier}">
+            <span class="trust-score__track">
+                <span class="trust-score__fill trust-score__fill--${tier}" style="width: ${v}%"></span>
+            </span>
+            <span class="trust-score__label trust-score__label--${tier}">${v}/100</span>
+        </span>`;
+    }
+
+    function renderAnalysisInto(slot, entry) {
+        if (entry.analysis_error) {
+            slot.innerHTML = `<div class="chunks-empty">Analyzer unavailable: ${escapeHtml(entry.analysis_error)}</div>`;
+            return;
+        }
+        if (!entry.analysis) {
+            slot.innerHTML = `<div class="chunks-empty">Article text too short to analyze.</div>`;
+            return;
+        }
+
+        const a = entry.analysis.article || {};
+        const chunks = entry.analysis.chunks || [];
+
+        const techniqueSummary = Object.entries(a.technique_counts || {})
+            .sort((x, y) => y[1] - x[1])
+            .slice(0, 6)
+            .map(([label, count]) => `<span class="technique-chip">${escapeHtml(formatTechnique(label))} &times;${count}</span>`)
+            .join('') || '<span style="color: var(--text-subtle); font-size: 0.8rem;">None flagged</span>';
+
+        const emotionClass = 'emo-' + (a.dominant_emotion || 'neutral');
+        const subjPct = Math.round(100 * (a.subjectivity_ratio || 0));
+
+        const summaryGrid = `
+            <div class="article-summary">
+                <div class="article-summary__cell">
+                    <div class="article-summary__label">Dominant bias</div>
+                    ${biasIndicator(a.dominant_bias || 'center')}
+                </div>
+                <div class="article-summary__cell">
+                    <div class="article-summary__label">Dominant emotion</div>
+                    <span class="emotion-badge ${emotionClass}">${escapeHtml(a.dominant_emotion || 'neutral')}</span>
+                </div>
+                <div class="article-summary__cell">
+                    <div class="article-summary__label">Subjectivity</div>
+                    ${trustScore(subjPct)}
+                </div>
+                <div class="article-summary__cell">
+                    <div class="article-summary__label">Techniques detected</div>
+                    <div class="technique-chips">${techniqueSummary}</div>
+                </div>
+            </div>
+        `;
+
+        let chunksHtml = '';
+        if (chunks.length) {
+            const chunkCards = chunks.map(c => {
+                const techniques = (c.techniques || []).map(t =>
+                    `<span class="technique-chip" title="confidence: ${(t.confidence*100).toFixed(0)}%">${escapeHtml(formatTechnique(t.label))}</span>`
+                ).join('');
+                const techStr = techniques || '<span style="color: var(--text-subtle);">no techniques flagged</span>';
+                return `
+                    <div class="chunk-card" data-emotion="${escapeHtml(c.emotion || 'neutral')}">
+                        <div class="chunk-text">${escapeHtml(c.text)}</div>
+                        <div class="chunk-meta">
+                            <span class="emotion-badge emo-${escapeHtml(c.emotion || 'neutral')}">${escapeHtml(c.emotion || 'neutral')}</span>
+                            ${biasIndicator(c.bias || 'center')}
+                            <span>&middot;</span>
+                            <span>${c.subjective ? 'subjective' : 'objective'}</span>
+                            <span>&middot;</span>
+                            <span class="technique-chips" style="display: inline-flex;">${techStr}</span>
+                        </div>
+                    </div>`;
+            }).join('');
+            chunksHtml = `
+                <button type="button" class="chunks-toggle" aria-expanded="false">Show chunk-by-chunk breakdown (${chunks.length})</button>
+                <div class="chunks-detail" hidden>${chunkCards}</div>
+            `;
+        }
+
+        slot.innerHTML = summaryGrid + chunksHtml;
+
+        const toggle = slot.querySelector('.chunks-toggle');
+        const detail = slot.querySelector('.chunks-detail');
+        if (toggle && detail) {
+            toggle.addEventListener('click', () => {
+                const shown = !detail.hasAttribute('hidden');
+                if (shown) {
+                    detail.setAttribute('hidden', '');
+                    toggle.setAttribute('aria-expanded', 'false');
+                    toggle.textContent = `Show chunk-by-chunk breakdown (${chunks.length})`;
+                } else {
+                    detail.removeAttribute('hidden');
+                    toggle.setAttribute('aria-expanded', 'true');
+                    toggle.textContent = `Hide chunk-by-chunk breakdown`;
+                }
+            });
+        }
+    }
+
+    async function loadAnalysis() {
+        try {
+            const res = await fetch(`/api/cluster/${encodeURIComponent(CLUSTER_ID)}/analysis`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            const byUrl = {};
+            for (const entry of (data.articles || [])) byUrl[entry.url] = entry;
+
+            document.querySelectorAll('.analysis-slot').forEach(slot => {
+                const entry = byUrl[slot.dataset.url];
+                if (entry) renderAnalysisInto(slot, entry);
+                else slot.innerHTML = `<div class="chunks-empty">No analysis available.</div>`;
+            });
+        } catch (e) {
+            document.querySelectorAll('.analysis-slot').forEach(slot => {
+                slot.innerHTML = `<div class="chunks-empty" style="color: var(--danger);">Analyzer request failed: ${escapeHtml(e.message)}</div>`;
+            });
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', loadAnalysis);
+</script>
+{% endif %}
+{% endblock %}

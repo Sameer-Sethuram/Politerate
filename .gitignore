@@ -51,6 +51,12 @@ resources_extracted.txt
 *.tmp
 outputs/
 
+# Senior-design reference docs (UX assignments, abstract, logo PDF, etc.)
+resources/
+
+# Sarah's credibility training notebook — she maintains this on her side
+politerate_credibility_model.ipynb
+
 # Jupyter checkpoints
 .ipynb_checkpoints/
 
@@ -60,6 +66,10 @@ models/credibility/*.safetensors
 
 # Summarizer model folder
 fine_tuned_bart_news/
+
+# Credibility / DeBERTa weights (git-ignored; loaded at runtime)
+credibility/weights/*
+!credibility/weights/.gitkeep
 
 # Dev scratch: pipeline test runners and their outputs
 outputs/

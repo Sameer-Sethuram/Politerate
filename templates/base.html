@@ -47,6 +47,30 @@
 <span class="brand__wordmark">Po<span class="brand__wordmark--accent">literate</span></span>
 {%- endmacro -%}
 
+{#- BiasIndicator: 3-segment bar showing political lean.
+    `bias` is one of 'left', 'center', 'right'. -#}
+{%- macro bias_indicator(bias, label=true) -%}
+<span class="bias-indicator" data-bias="{{ bias }}">
+    <span class="bias-indicator__bar">
+        <span class="bias-indicator__seg bias-indicator__seg--left{% if bias == 'left' %} is-active{% endif %}"></span>
+        <span class="bias-indicator__seg bias-indicator__seg--center{% if bias == 'center' %} is-active{% endif %}"></span>
+        <span class="bias-indicator__seg bias-indicator__seg--right{% if bias == 'right' %} is-active{% endif %}"></span>
+    </span>
+    {% if label %}<span class="bias-indicator__label bias-indicator__label--{{ bias }}">{{ bias|capitalize }}</span>{% endif %}
+</span>
+{%- endmacro -%}
+
+{#- TrustScore: progress bar for a 0–100 score. Green / amber / red based on value. -#}
+{%- macro trust_score(score, label=true) -%}
+{%- set tier = 'high' if score >= 85 else ('medium' if score >= 70 else 'low') -%}
+<span class="trust-score" data-tier="{{ tier }}">
+    <span class="trust-score__track">
+        <span class="trust-score__fill trust-score__fill--{{ tier }}" style="width: {{ score }}%;"></span>
+    </span>
+    {% if label %}<span class="trust-score__label trust-score__label--{{ tier }}">{{ score }}/100</span>{% endif %}
+</span>
+{%- endmacro -%}
+
 <div class="topbar">
     <header class="site-header">
         <div class="site-header__inner">
@@ -57,6 +81,7 @@
             <nav class="site-nav" aria-label="Primary">
                 <a href="/"         class="{% if active == 'today'    %}is-active{% endif %}">Today</a>
                 <a href="/learn"    class="{% if active == 'learn'    %}is-active{% endif %}">Learn</a>
+                <a href="/analyzer" class="{% if active == 'analyzer' %}is-active{% endif %}">Analyzer</a>
                 <a href="/archive"  class="{% if active == 'archive'  %}is-active{% endif %}">Archive</a>
                 <a href="/glossary" class="{% if active == 'glossary' %}is-active{% endif %}">Glossary</a>
             </nav>
@@ -74,6 +99,7 @@
 <footer class="site-footer">
     <a href="/">Today</a> ·
     <a href="/learn">Learn</a> ·
+    <a href="/analyzer">Analyzer</a> ·
     <a href="/archive">Archive</a> ·
     <a href="/glossary">Glossary</a>
     <div style="margin-top: 0.5rem;">Politerate — multi-source, unbiased political news.</div>

@@ -249,16 +249,25 @@ def get_cached_summaries() -> dict:
     """)
     rows = cursor.fetchall()
 
+    cursor.execute("SELECT url, credibility_score, credibility_label FROM articles")
+    cred_by_url = {
+        r["url"]: {"score": r["credibility_score"], "label": r["credibility_label"]}
+        for r in cursor.fetchall()
+    }
+
     clusters = []
     for row in rows:
+        urls = json.loads(row["urls"]) if row["urls"] else []
+        source_credibility = [cred_by_url.get(u, {"score": None, "label": "unknown"}) for u in urls]
         clusters.append({
             "cluster_id": row["id"],
             "summary": row["summary"],
             "highlighted_summary": row["highlighted_summary"],
             "sources": json.loads(row["sources"]) if row["sources"] else [],
-            "urls": json.loads(row["urls"]) if row["urls"] else [],
+            "urls": urls,
             "titles": json.loads(row["titles"]) if row["titles"] else [],
             "defined_terms": json.loads(row["terms"]) if row["terms"] else [],
+            "source_credibility": source_credibility,
             "article_count": row["article_count"],
             "updated_at": row["updated_at"]
         })
@@ -302,7 +311,7 @@ def get_cluster(cluster_id: str) -> Optional[dict]:
     }
 
     cursor.execute("""
-        SELECT url, title, source, credibility_score, credibility_label
+        SELECT url, title, source, text, credibility_score, credibility_label
         FROM articles WHERE cluster_id = ?
     """, (cluster_id,))
     articles = []
@@ -311,6 +320,7 @@ def get_cluster(cluster_id: str) -> Optional[dict]:
             "url": article_row["url"],
             "title": article_row["title"],
             "source": article_row["source"],
+            "text": article_row["text"],
             "credibility_score": article_row["credibility_score"],
             "credibility_label": article_row["credibility_label"]
         })

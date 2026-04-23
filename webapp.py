@@ -142,6 +142,19 @@ def learn():
     return render_template("learn.html")
 
 
+@app.route("/analyzer")
+def analyzer():
+    return render_template("analyzer.html")
+
+
+@app.route("/cluster/<cluster_id>")
+def cluster_detail(cluster_id):
+    cluster = get_cluster(cluster_id)
+    if not cluster:
+        return render_template("cluster.html", cluster=None, cluster_id=cluster_id), 404
+    return render_template("cluster.html", cluster=cluster, cluster_id=cluster_id)
+
+
 @app.route("/api/summaries")
 def get_summaries():
     if is_stale():
@@ -174,6 +187,40 @@ def get_summary(cluster_id):
     if not cluster:
         return jsonify({"error": "Cluster not found"}), 404
     return jsonify(cluster)
+
+
+@app.route("/api/cluster/<cluster_id>/analysis")
+def api_cluster_analysis(cluster_id):
+    from credibility import get_analyzer
+    cluster = get_cluster(cluster_id)
+    if not cluster:
+        return jsonify({"error": "Cluster not found"}), 404
+
+    analyzer = get_analyzer()
+    articles_out = []
+    for article in cluster.get("articles", []):
+        text = (article.get("text") or "").strip()
+        entry = {
+            "url": article.get("url"),
+            "title": article.get("title"),
+            "source": article.get("source"),
+            "credibility_score": article.get("credibility_score"),
+            "credibility_label": article.get("credibility_label"),
+            "analysis": None,
+        }
+        if len(text) >= 50:
+            try:
+                entry["analysis"] = analyzer.predict_article(text)
+            except Exception as e:
+                logger.warning(f"Analyzer failed for {article.get('url')}: {e}")
+                entry["analysis_error"] = str(e)[:120]
+        articles_out.append(entry)
+
+    return jsonify({
+        "cluster_id": cluster.get("cluster_id"),
+        "model_version": getattr(analyzer, "model_version", "unknown"),
+        "articles": articles_out,
+    })
 
 
 @app.route("/api/refresh", methods=["POST"])
@@ -283,6 +330,27 @@ def api_quiz():
 def api_term_of_day():
     from politerate_quiz import pick_term_of_day
     return jsonify(pick_term_of_day(get_all_articles()))
+
+
+@app.route("/api/analyze", methods=["POST"])
+def api_analyze():
+    from credibility import get_analyzer
+    data = request.get_json(silent=True) or {}
+    text = (data.get("text") or "").strip()
+    if len(text) < 50:
+        return jsonify({"error": "Text must be at least 50 characters"}), 400
+    if len(text) > 50_000:
+        return jsonify({"error": "Text exceeds 50,000 characters"}), 400
+
+    try:
+        analyzer = get_analyzer()
+        result = analyzer.predict_article(text)
+        result["cached"] = False
+        result["model_version"] = getattr(analyzer, "model_version", "unknown")
+        return jsonify(result)
+    except Exception as e:
+        logger.exception("Analyzer failed")
+        return jsonify({"error": f"Analysis failed: {e}"}), 500
 
 
 @app.route("/api/summarize", methods=["POST"])
