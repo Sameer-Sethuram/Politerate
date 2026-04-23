@@ -24,7 +24,8 @@ RSS_FEEDS = {
     "NYPost - US News": "https://nypost.com/us-news/feed/",
     "CBS": "https://www.cbsnews.com/latest/rss/politics",
     "ABC": "https://abcnews.go.com/abcnews/politicsheadlines",
-    "Guardian": "https://www.theguardian.com/us-news/us-politics/rss"
+    "Guardian": "https://www.theguardian.com/us-news/us-politics/rss",
+    "AP News": "https://feedx.net/rss/ap.xml"
 }
 
 # ------------------------------------------------------------

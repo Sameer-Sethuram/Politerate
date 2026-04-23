@@ -39,6 +39,29 @@ MIN_ARTICLES_PER_CLUSTER = 3
 MAX_CLUSTERS_IN_DAILY_BRIEF = 8
 MAX_CLUSTERS_IN_BRIEF_INPUT = 5
 
+# Conditional generation tiers: (source_token_threshold, (max_length, min_length)).
+# Scales BART output budget to the size of the source material. Prevents
+# hallucination on thin clusters (small source -> short target) while still
+# giving rich clusters room to breathe. Measured against the PRE-truncation
+# token count, not BART's 1024-cap input.
+_SOURCE_BUDGET_TIERS = [
+    (1200,           (140, 40)),   # ~1 short article
+    (2800,           (200, 70)),   # ~2 articles
+    (5500,           (240, 100)),  # ~3-5 articles
+    (float("inf"),   (280, 130)),  # rich cluster
+]
+# Threshold above which the truncation retry is allowed to use aggressive
+# params (early_stopping=False, higher min_length). Below this, the retry
+# stays conservative to avoid forcing hallucination.
+_RICH_SOURCE_THRESHOLD = 2800
+
+
+def _budget_for_source(token_count: int) -> tuple[int, int]:
+    for threshold, budget in _SOURCE_BUDGET_TIERS:
+        if token_count < threshold:
+            return budget
+    return _SOURCE_BUDGET_TIERS[-1][1]
+
 
 _CAMEL_BOUNDARY = re.compile(r"[a-z][A-Z]")
 
@@ -67,6 +90,26 @@ def _strip_garbled_tail(text: str) -> str:
     if last_end > 0:
         return prefix[: last_end + 1].strip()
     return prefix.strip()
+
+
+def _looks_truncated(text: str) -> bool:
+    """True when BART's output appears to have been cut off mid-sentence at
+    an abbreviation (e.g. "...slipped by a U.S.").
+
+    Heuristic: a single-sentence output ending in an abbreviation pattern
+    means BART hit max_length before emitting a real sentence end. Multi-
+    sentence outputs are fine because _clean_bart_output already drops
+    trailing abbrev-only fragments when other sentences exist.
+    """
+    if not text:
+        return False
+    stripped = text.rstrip()
+    if not stripped.endswith("."):
+        return False
+    sentences = _smart_sentence_split(stripped)
+    if len(sentences) > 1:
+        return False
+    return bool(_ABBREV_END.search(stripped))
 
 
 _SENTENCE_END = re.compile(r"(?<![.!?])[.!?](?![.!?])")
@@ -187,7 +230,14 @@ class PoliteratePipeline:
         logger.info(f"Credibility filter: {len(passed)} passed, {len(failed)} filtered")
         return passed, failed
 
-    def _bart_generate(self, text: str, max_length: int, min_length: int) -> str:
+    def _bart_generate(
+        self,
+        text: str,
+        max_length: int,
+        min_length: int,
+        length_penalty: float = 1.1,
+        early_stopping: bool = True,
+    ) -> str:
         inputs = self._tokenizer(
             text,
             max_length=1024,
@@ -203,36 +253,96 @@ class PoliteratePipeline:
             min_length=min_length,
             num_beams=6,
             no_repeat_ngram_size=3,
-            length_penalty=1.1,
-            early_stopping=True,
+            length_penalty=length_penalty,
+            early_stopping=early_stopping,
         )
         return self._tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-    def summarize(self, text: str, max_length: int = 220, min_length: int = 90) -> str:
-        """Summarize with a three-stage anti-garbage strategy:
-          1. Generate at the requested budget.
-          2. If the output is garbled, salvage the coherent prefix.
-          3. If salvaging yields nothing usable, retry once at a conservative
-             budget (max_length=160, min_length=60) less likely to degenerate.
+    def _salvage_if_garbled(self, cleaned: str) -> str:
+        """If `cleaned` is garbled, try to rescue the coherent prefix in-place.
+        Returns the salvaged string (possibly still garbled) or `cleaned` as-is."""
+        if not _looks_garbled(cleaned):
+            return cleaned
+        salvaged = _clean_bart_output(_strip_garbled_tail(cleaned))
+        if salvaged and not _looks_garbled(salvaged) and len(salvaged.split()) >= MIN_SENT_WORDS:
+            return salvaged
+        return cleaned
+
+    def _source_token_count(self, text: str) -> int:
+        """Measure raw tokenized length of the source (not truncated to 1024)."""
+        if self._tokenizer is None or not text:
+            return 0
+        try:
+            return len(self._tokenizer.encode(text, add_special_tokens=False, truncation=False))
+        except Exception:
+            return 0
+
+    def summarize(
+        self,
+        text: str,
+        max_length: Optional[int] = None,
+        min_length: Optional[int] = None,
+    ) -> str:
+        """Summarize with conditional generation + anti-garbage safeguards.
+
+        Budget scales to source size (via _budget_for_source) unless the
+        caller explicitly passes max_length / min_length. This prevents
+        hallucination on thin clusters — small source -> short target.
+
+        Flow (hard-capped at two BART calls):
+          1. Primary attempt at the tier-appropriate budget.
+          2. Always try to salvage garbled output in-place (no extra BART call).
+          3. If still garbled OR truncated at an abbreviation, ONE retry
+             with params that scale with source richness:
+               - Rich source (>= _RICH_SOURCE_THRESHOLD tokens): aggressive —
+                 early_stopping=False, higher min_length, longer length penalty.
+               - Thin source: conservative — keep early_stopping on, modest
+                 budget bump. Avoids forcing BART to invent content.
+          4. Accept the retry only if it's strictly better; otherwise keep
+             the original cleaned output.
         """
         if not self._model:
             logger.warning("Summarization model not loaded - returning placeholder")
             return "[Summary unavailable - model not loaded]"
 
-        decoded = self._bart_generate(text, max_length, min_length)
-        cleaned = _clean_bart_output(decoded)
+        source_tokens = self._source_token_count(text)
+        auto_max, auto_min = _budget_for_source(source_tokens)
+        effective_max = max_length if max_length is not None else auto_max
+        effective_min = min_length if min_length is not None else auto_min
 
-        if not _looks_garbled(cleaned):
+        cleaned = _clean_bart_output(
+            self._bart_generate(text, effective_max, effective_min)
+        )
+        cleaned = self._salvage_if_garbled(cleaned)
+
+        is_garbled = _looks_garbled(cleaned)
+        is_truncated = _looks_truncated(cleaned)
+
+        if not is_garbled and not is_truncated:
             return cleaned
 
-        logger.warning("BART output looked garbled; attempting to salvage prefix")
-        salvaged = _clean_bart_output(_strip_garbled_tail(cleaned))
-        if salvaged and not _looks_garbled(salvaged) and len(salvaged.split()) >= MIN_SENT_WORDS:
-            return salvaged
+        rich_source = source_tokens >= _RICH_SOURCE_THRESHOLD
+        logger.warning(
+            "Retry (tokens=%d, rich=%s, garbled=%s, truncated=%s)",
+            source_tokens, rich_source, is_garbled, is_truncated,
+        )
 
-        logger.warning("Salvage failed; retrying with conservative budget (160/60)")
-        decoded_retry = self._bart_generate(text, 160, 60)
-        return _clean_bart_output(decoded_retry)
+        retry = _clean_bart_output(self._bart_generate(
+            text,
+            max_length=effective_max + 140,
+            min_length=(
+                max(effective_min + 40, 120) if rich_source
+                else effective_min + 20
+            ),
+            length_penalty=1.4 if rich_source else 1.2,
+            early_stopping=not rich_source,
+        ))
+        retry = self._salvage_if_garbled(retry)
+
+        if not _looks_garbled(retry) and not _looks_truncated(retry) \
+                and len(retry.split()) >= MIN_SENT_WORDS:
+            return retry
+        return cleaned
 
     def load_model(self, path: str = None) -> None:
         path = path or self.model_path

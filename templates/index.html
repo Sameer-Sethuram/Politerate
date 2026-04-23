@@ -1,750 +1,232 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Politerate - Today's Political News</title>
-    <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
+{% extends "base.html" %}
+{% set active = "today" %}
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: #f0f2f5;
-            color: #1c1e21;
-            line-height: 1.6;
-        }
+{% block title %}Politerate — Today's Political News{% endblock %}
 
-        header {
-            background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%);
-            color: white;
-            padding: 1.5rem 2rem;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
+{% block disclaimer %}
+<div class="ai-banner" role="note">
+    <span class="ai-banner__inner">⚠ Summaries on this page are AI-generated — verify against linked sources before sharing.</span>
+</div>
+{% endblock %}
 
-        .header-content {
-            max-width: 1200px;
-            margin: 0 auto;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
+{% block content %}
+<section class="hero">
+    <div class="hero__logo">
+        {{ brand_icon('48') }}
+        <span class="brand__wordmark" style="font-size: 2.6rem; letter-spacing: -0.03em;">Po<span class="brand__wordmark--accent">literate</span></span>
+    </div>
+    <div class="hero__tagline">MULTI-SOURCE <span>·</span> UNBIASED <span>·</span> POLITICAL NEWS</div>
+    <p class="hero__lede">Today's political news, summarized across trusted outlets with key terms highlighted and sources one click away.</p>
+</section>
 
-        .logo {
-            font-size: 1.75rem;
-            font-weight: 700;
-            letter-spacing: -0.5px;
-        }
+<div class="view-toggle__container">
+    <div class="view-toggle">
+        <button id="btn-daily" class="is-active" onclick="switchView('daily')">Daily Brief</button>
+        <button id="btn-topics" onclick="switchView('topics')">Topics</button>
+    </div>
+</div>
 
-        .header-nav {
-            display: flex;
-            gap: 1rem;
-            align-items: center;
-        }
+<div id="update-time-row" style="text-align: center; font-size: 0.82rem; color: var(--text-subtle); margin-bottom: 1.5rem;">
+    <span id="update-time">Loading today's news…</span>
+</div>
 
-        .header-nav a {
-            color: rgba(255,255,255,0.85);
-            text-decoration: none;
-            font-weight: 500;
-            transition: color 0.2s;
-        }
+<div id="loading" class="state">
+    <div class="spinner"></div>
+    <p>Loading today's summaries…</p>
+</div>
 
-        .header-nav a:hover {
-            color: white;
-        }
+<div id="error" class="state" style="display: none;">
+    <h2 style="margin-bottom: 0.75rem;">Unable to load summaries</h2>
+    <p id="error-message" style="margin-bottom: 1rem;">Something went wrong while loading the news.</p>
+    <button class="btn btn-primary" onclick="loadSummaries()">Try Again</button>
+</div>
 
-        .view-toggle {
-            display: flex;
-            background: rgba(255,255,255,0.1);
-            border-radius: 20px;
-            padding: 0.25rem;
-        }
+<div id="empty" class="state" style="display: none;">
+    <h2 style="margin-bottom: 0.75rem;">No summaries available</h2>
+    <p style="margin-bottom: 1rem;">Check back soon for today's political news summaries.</p>
+    <button class="btn btn-primary" onclick="loadSummaries()">Refresh</button>
+</div>
 
-        .view-toggle button {
-            background: transparent;
-            border: none;
-            color: rgba(255,255,255,0.7);
-            padding: 0.4rem 1rem;
-            border-radius: 16px;
-            cursor: pointer;
-            font-size: 0.85rem;
-            font-weight: 500;
-            transition: all 0.2s;
-        }
+<div id="daily-container" style="display: none;"></div>
+<div id="clusters-container" class="clusters-grid" style="display: none;"></div>
+{% endblock %}
 
-        .view-toggle button:hover {
-            color: white;
-        }
+{% block scripts %}
+<script>
+    const TOPIC_ICONS = {
+        'climate': '🌍', 'econom': '📈', 'stock': '📈', 'market': '📈',
+        'health': '🏥', 'foreign': '🌍', 'war': '⚔️',
+        'election': '🗳️', 'vote': '🗳️', 'trump': '🏛️', 'biden': '🏛️',
+        'congress': '🏛️', 'senate': '🏛️', 'court': '⚖️', 'crime': '🚔',
+        'tech': '💻', 'science': '🔬', 'default': '📰'
+    };
 
-        .view-toggle button.active {
-            background: white;
-            color: #1a365d;
+    function getIconForTopic(text) {
+        const lower = (text || '').toLowerCase();
+        for (const [keyword, icon] of Object.entries(TOPIC_ICONS)) {
+            if (lower.includes(keyword)) return icon;
         }
+        return TOPIC_ICONS.default;
+    }
 
-        .update-time {
-            font-size: 0.9rem;
-            opacity: 0.85;
-        }
+    function formatCredibilityScore(score) {
+        if (score >= 0.8) return { class: 'cred-high', label: score.toFixed(1) };
+        if (score >= 0.5) return { class: 'cred-medium', label: score.toFixed(1) };
+        return { class: 'cred-low', label: score.toFixed(1) };
+    }
 
-        main {
-            max-width: 1200px;
-            margin: 2rem auto;
-            padding: 0 1rem;
-        }
+    function formatDate(isoString) {
+        if (!isoString) return 'Just now';
+        const date = new Date(isoString);
+        const now = new Date();
+        const diffMins = Math.floor((now - date) / 60000);
+        const diffHours = Math.floor(diffMins / 60);
+        if (diffMins < 1) return 'Just now';
+        if (diffMins < 60) return `${diffMins} min ago`;
+        if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    }
 
-        .loading-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 400px;
-            gap: 1rem;
-        }
+    const show = (id) => {
+        ['loading', 'error', 'empty', 'daily-container', 'clusters-container'].forEach(x => {
+            document.getElementById(x).style.display = 'none';
+        });
+        const el = document.getElementById(id);
+        if (id === 'clusters-container') el.style.display = 'grid';
+        else el.style.display = 'block';
+    };
 
-        .spinner {
-            width: 50px;
-            height: 50px;
-            border: 4px solid #e2e8f0;
-            border-top-color: #2c5282;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
+    function createClusterCard(cluster) {
+        const card = document.createElement('article');
+        card.className = 'card';
+        const icon = getIconForTopic(cluster.summary);
+        const title = (cluster.titles && cluster.titles[0])
+            ? (cluster.titles[0].substring(0, 70) + (cluster.titles[0].length > 70 ? '…' : ''))
+            : 'News Summary';
 
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
+        const sourcesHtml = cluster.sources.map((source, i) => {
+            const url = (cluster.urls && cluster.urls[i]) ? cluster.urls[i] : '#';
+            const score = cluster.defined_terms && cluster.defined_terms.length > 0 ? 0.85 : 0.9;
+            const cred = formatCredibilityScore(score);
+            return `
+                <a href="${url}" target="_blank" rel="noopener noreferrer" class="source-badge">
+                    <span>${source}</span>
+                    <span class="source-badge__score ${cred.class}">${cred.label}</span>
+                </a>`;
+        }).join('');
 
-        .loading-text {
-            color: #64748b;
-            font-size: 1.1rem;
-        }
+        const termsHtml = (cluster.defined_terms && cluster.defined_terms.length > 0)
+            ? `<div class="terms-section">
+                   <div class="terms-label">Key terms</div>
+                   <div class="terms-list">
+                       ${cluster.defined_terms.map(t => `<span class="term-tag" title="${t.definition}">${t.term}</span>`).join('')}
+                   </div>
+               </div>`
+            : '';
 
-        .error-container {
-            text-align: center;
-            padding: 3rem;
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-        }
-
-        .error-container h2 {
-            color: #dc2626;
-            margin-bottom: 1rem;
-        }
-
-        .retry-btn {
-            background: #2c5282;
-            color: white;
-            border: none;
-            padding: 0.75rem 1.5rem;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 1rem;
-            margin-top: 1rem;
-        }
-
-        .retry-btn:hover {
-            background: #1a365d;
-        }
-
-        .clusters-grid {
-            display: grid;
-            gap: 1.5rem;
-        }
-
-        .cluster-card {
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            padding: 1.5rem;
-            transition: box-shadow 0.2s;
-        }
-
-        .cluster-card:hover {
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-        }
-
-        .cluster-header {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            margin-bottom: 1rem;
-        }
-
-        .cluster-icon {
-            width: 36px;
-            height: 36px;
-            background: #e2e8f0;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.25rem;
-        }
-
-        .cluster-title {
-            font-size: 1.25rem;
-            font-weight: 600;
-            color: #1a365d;
-        }
-
-        .cluster-meta {
-            font-size: 0.85rem;
-            color: #64748b;
-        }
-
-        .summary-text {
-            font-size: 1rem;
-            line-height: 1.7;
-            margin-bottom: 1.25rem;
-            color: #2d3748;
-        }
-
-        .politerate-term {
-            border-bottom: 2px dotted #2c5282;
-            cursor: help;
-            position: relative;
-        }
-
-        .politerate-term:hover {
-            background: #ebf4ff;
-        }
-
-        .politerate-term::after {
-            content: attr(title);
-            position: absolute;
-            bottom: 100%;
-            left: 50%;
-            transform: translateX(-50%);
-            background: #1a365d;
-            color: white;
-            padding: 0.5rem 0.75rem;
-            border-radius: 6px;
-            font-size: 0.85rem;
-            max-width: 320px;
-            width: max-content;
-            opacity: 0;
-            visibility: hidden;
-            transition: opacity 0.2s, visibility 0.2s;
-            z-index: 50;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            pointer-events: none;
-            line-height: 1.4;
-        }
-
-        .politerate-term:hover::after {
-            opacity: 1;
-            visibility: visible;
-        }
-
-        .sources-section {
-            border-top: 1px solid #e2e8f0;
-            padding-top: 1rem;
-        }
-
-        .sources-label {
-            font-size: 0.8rem;
-            font-weight: 600;
-            color: #64748b;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 0.5rem;
-        }
-
-        .sources-list {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-        }
-
-        .source-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.4rem;
-            padding: 0.35rem 0.75rem;
-            background: #f1f5f9;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            text-decoration: none;
-            color: inherit;
-            transition: background 0.2s;
-        }
-
-        .source-badge:hover {
-            background: #e2e8f0;
-        }
-
-        .source-name {
-            font-weight: 500;
-        }
-
-        .credibility-score {
-            font-size: 0.75rem;
-            padding: 0.15rem 0.4rem;
-            border-radius: 10px;
-            font-weight: 600;
-        }
-
-        .cred-high { background: #dcfce7; color: #166534; }
-        .cred-medium { background: #fef9c3; color: #854d0e; }
-        .cred-low { background: #fee2e2; color: #991b1b; }
-
-        .terms-section {
-            margin-top: 1rem;
-            padding-top: 1rem;
-            border-top: 1px solid #e2e8f0;
-        }
-
-        .terms-label {
-            font-size: 0.8rem;
-            font-weight: 600;
-            color: #64748b;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 0.5rem;
-        }
-
-        .terms-list {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-        }
-
-        .term-tag {
-            background: #ebf4ff;
-            color: #1e40af;
-            padding: 0.25rem 0.6rem;
-            border-radius: 4px;
-            font-size: 0.8rem;
-            cursor: help;
-        }
-
-        .daily-summary-container {
-            max-width: 800px;
-            margin: 0 auto;
-        }
-
-        .daily-summary-card {
-            background: white;
-            border-radius: 16px;
-            padding: 2rem;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-        }
-
-        .daily-summary-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 1.5rem;
-            padding-bottom: 1rem;
-            border-bottom: 2px solid #e2e8f0;
-            flex-wrap: wrap;
-            gap: 1rem;
-        }
-
-        .daily-summary-title {
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: #1a365d;
-        }
-
-        .daily-summary-meta {
-            display: flex;
-            gap: 0.75rem;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-
-        .meta-badge {
-            background: #f1f5f9;
-            padding: 0.35rem 0.75rem;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            color: #64748b;
-        }
-
-        .meta-badge strong {
-            color: #1a365d;
-        }
-
-        .daily-summary-text {
-            font-size: 1.1rem;
-            line-height: 1.8;
-            color: #2d3748;
-            margin-bottom: 1.5rem;
-        }
-
-        .ai-disclaimer {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.35rem;
-            font-size: 0.75rem;
-            color: #78716c;
-            background: #fef3c7;
-            padding: 0.25rem 0.6rem;
-            border-radius: 12px;
-            margin-bottom: 1rem;
-            border: 1px solid #fde68a;
-        }
-        .ai-disclaimer.inline {
-            margin-bottom: 0.75rem;
-        }
-
-        .daily-sources-section {
-            background: #f8fafc;
-            border-radius: 12px;
-            padding: 1.25rem;
-        }
-
-        .daily-sources-label {
-            font-size: 0.8rem;
-            font-weight: 600;
-            color: #64748b;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 0.75rem;
-        }
-
-        .daily-sources-list {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-        }
-
-        footer {
-            text-align: center;
-            padding: 2rem;
-            color: #64748b;
-            font-size: 0.9rem;
-        }
-
-        footer a {
-            color: #2c5282;
-            text-decoration: none;
-        }
-
-        footer a:hover {
-            text-decoration: underline;
-        }
-
-        @media (max-width: 768px) {
-            .header-content {
-                flex-direction: column;
-                gap: 0.75rem;
-                text-align: center;
-            }
-
-            .cluster-card {
-                padding: 1.25rem;
-            }
-        }
-    </style>
-</head>
-<body>
-    <header>
-        <div class="header-content">
-            <div class="logo">Politerate</div>
-            <div class="header-nav">
-                <div class="view-toggle">
-                    <button id="btn-daily" class="active" onclick="switchView('daily')">Daily Brief</button>
-                    <button id="btn-topics" onclick="switchView('topics')">Topics</button>
+        card.innerHTML = `
+            <div class="cluster__head">
+                <div class="cluster__icon">${icon}</div>
+                <div>
+                    <div class="cluster__title">${title}</div>
+                    <div class="cluster__meta">${cluster.article_count} article${cluster.article_count > 1 ? 's' : ''}</div>
                 </div>
-                <a href="/learn">Learn</a>
-                <a href="/archive">Archive</a>
-                <a href="/glossary">Glossary</a>
-                <span class="update-time" id="update-time">Loading...</span>
             </div>
-        </div>
-    </header>
-
-    <main>
-        <div id="loading" class="loading-container">
-            <div class="spinner"></div>
-            <p class="loading-text">Loading today's summaries...</p>
-        </div>
-
-        <div id="error" style="display: none;">
-            <div class="error-container">
-                <h2>Unable to load summaries</h2>
-                <p id="error-message">Something went wrong while loading the news.</p>
-                <button class="retry-btn" onclick="loadSummaries()">Try Again</button>
+            <div class="cluster__summary">${cluster.highlighted_summary || cluster.summary}</div>
+            <div style="padding-top: 1rem; border-top: 1px solid var(--border);">
+                <div class="terms-label" style="margin-bottom: 0.55rem;">Sources</div>
+                <div class="sources-list">${sourcesHtml}</div>
             </div>
-        </div>
+            ${termsHtml}
+        `;
+        return card;
+    }
 
-        <div id="empty" style="display: none;">
-            <div class="error-container">
-                <h2>No summaries available</h2>
-                <p>Check back soon for today's political news summaries.</p>
-                <button class="retry-btn" onclick="loadSummaries()">Refresh</button>
-            </div>
-        </div>
+    function renderClusters(clusters) {
+        const container = document.getElementById('clusters-container');
+        container.innerHTML = '';
+        clusters.forEach(c => container.appendChild(createClusterCard(c)));
+    }
 
-        <div id="clusters-container" class="clusters-grid" style="display: none;"></div>
+    function renderDailySummary(data) {
+        const container = document.getElementById('daily-container');
+        const uniqueSources = [...new Set(data.sources || [])];
+        const sourcesHtml = uniqueSources.map(source => {
+            const cred = formatCredibilityScore(0.85);
+            return `
+                <span class="source-badge">
+                    <span>${source}</span>
+                    <span class="source-badge__score ${cred.class}">${cred.label}</span>
+                </span>`;
+        }).join('');
 
-        <div id="daily-container" class="daily-summary-container" style="display: none;"></div>
-    </main>
-
-    <footer>
-        <a href="/learn">Learn</a> | <a href="/archive">Archive</a> | <a href="/glossary">Glossary</a> | Politerate - Making political news accessible
-    </footer>
-
-    <script>
-        const TOPIC_ICONS = {
-            'climate': '🌍',
-            'econom': '📈',
-            'stock': '📈',
-            'market': '📈',
-            'health': '🏥',
-            'foreign': '🌍',
-            'war': '⚔️',
-            'election': '🗳️',
-            'vote': '🗳️',
-            'trump': '🏛️',
-            'biden': '🏛️',
-            'congress': '🏛️',
-            'senate': '🏛️',
-            'court': '⚖️',
-            'crime': '🚔',
-            'tech': '💻',
-            'science': '🔬',
-            'default': '📰'
-        };
-
-        function getIconForTopic(text) {
-            const lower = text.toLowerCase();
-            for (const [keyword, icon] of Object.entries(TOPIC_ICONS)) {
-                if (lower.includes(keyword)) {
-                    return icon;
-                }
-            }
-            return TOPIC_ICONS.default;
-        }
-
-        function formatCredibilityScore(score) {
-            if (score >= 0.8) return { class: 'cred-high', label: score.toFixed(1) };
-            if (score >= 0.5) return { class: 'cred-medium', label: score.toFixed(1) };
-            return { class: 'cred-low', label: score.toFixed(1) };
-        }
-
-        function formatDate(isoString) {
-            if (!isoString) return 'Just now';
-            const date = new Date(isoString);
-            const now = new Date();
-            const diffMs = now - date;
-            const diffMins = Math.floor(diffMs / 60000);
-            const diffHours = Math.floor(diffMins / 60);
-
-            if (diffMins < 1) return 'Just now';
-            if (diffMins < 60) return `${diffMins} min ago`;
-            if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-
-            return date.toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                hour: 'numeric',
-                minute: '2-digit'
-            });
-        }
-
-        function showLoading() {
-            document.getElementById('loading').style.display = 'flex';
-            document.getElementById('error').style.display = 'none';
-            document.getElementById('empty').style.display = 'none';
-            document.getElementById('clusters-container').style.display = 'none';
-        }
-
-        function showError(message) {
-            document.getElementById('loading').style.display = 'none';
-            document.getElementById('error').style.display = 'block';
-            document.getElementById('empty').style.display = 'none';
-            document.getElementById('clusters-container').style.display = 'none';
-            document.getElementById('error-message').textContent = message;
-        }
-
-        function showEmpty() {
-            document.getElementById('loading').style.display = 'none';
-            document.getElementById('error').style.display = 'none';
-            document.getElementById('empty').style.display = 'block';
-            document.getElementById('clusters-container').style.display = 'none';
-        }
-
-        function showClusters() {
-            document.getElementById('loading').style.display = 'none';
-            document.getElementById('error').style.display = 'none';
-            document.getElementById('empty').style.display = 'none';
-            document.getElementById('clusters-container').style.display = 'grid';
-        }
-
-        function createClusterCard(cluster) {
-            const card = document.createElement('div');
-            card.className = 'cluster-card';
-
-            const icon = getIconForTopic(cluster.summary);
-            const title = cluster.titles && cluster.titles[0] 
-                ? cluster.titles[0].substring(0, 60) + (cluster.titles[0].length > 60 ? '...' : '')
-                : 'News Summary';
-
-            const sourcesHtml = cluster.sources.map((source, i) => {
-                const url = cluster.urls && cluster.urls[i] ? cluster.urls[i] : '#';
-                const score = cluster.defined_terms && cluster.defined_terms.length > 0 ? 0.85 : 0.9;
-                const cred = formatCredibilityScore(score);
-                return `
-                    <a href="${url}" target="_blank" rel="noopener noreferrer" class="source-badge">
-                        <span class="source-name">${source}</span>
-                        <span class="credibility-score ${cred.class}">${cred.label}</span>
-                    </a>
-                `;
-            }).join('');
-
-            const termsHtml = cluster.defined_terms && cluster.defined_terms.length > 0
-                ? `
-                    <div class="terms-section">
-                        <div class="terms-label">Key Terms</div>
-                        <div class="terms-list">
-                            ${cluster.defined_terms.map(term => `
-                                <span class="term-tag" title="${term.definition}">${term.term}</span>
-                            `).join('')}
-                        </div>
+        container.innerHTML = `
+            <article class="card card--feature">
+                <header class="brief__head">
+                    <h2 class="brief__title">Today's Political Brief</h2>
+                    <div class="brief__meta">
+                        <span class="badge"><strong>${data.cluster_count || 0}</strong>&nbsp;topics</span>
+                        <span class="badge"><strong>${data.total_articles || 0}</strong>&nbsp;articles</span>
+                        <span class="badge"><strong>${data.source_count || 0}</strong>&nbsp;sources</span>
                     </div>
-                `
-                : '';
-
-            card.innerHTML = `
-                <div class="cluster-header">
-                    <div class="cluster-icon">${icon}</div>
-                    <div>
-                        <div class="cluster-title">${title}</div>
-                        <div class="cluster-meta">${cluster.article_count} article${cluster.article_count > 1 ? 's' : ''}</div>
-                    </div>
+                </header>
+                <p class="brief__text">${data.highlighted_summary || data.unified_summary}</p>
+                <div class="brief__sources">
+                    <div class="brief__sources-label">Sources</div>
+                    <div class="sources-list">${sourcesHtml}</div>
                 </div>
-                <div class="ai-disclaimer inline">⚠️ AI-generated — verify with sources below.</div>
-                <div class="summary-text">
-                    ${cluster.highlighted_summary || cluster.summary}
-                </div>
-                <div class="sources-section">
-                    <div class="sources-label">Sources</div>
-                    <div class="sources-list">
-                        ${sourcesHtml}
-                    </div>
-                </div>
-                ${termsHtml}
-            `;
+            </article>
+        `;
+    }
 
-            return card;
+    function switchView(view) {
+        document.getElementById('btn-daily').classList.toggle('is-active', view === 'daily');
+        document.getElementById('btn-topics').classList.toggle('is-active', view === 'topics');
+        ['loading', 'error', 'empty'].forEach(id => {
+            document.getElementById(id).style.display = 'none';
+        });
+        const daily = document.getElementById('daily-container');
+        const clusters = document.getElementById('clusters-container');
+        if (view === 'daily') {
+            daily.style.display = 'block';
+            clusters.style.display = 'none';
+        } else {
+            daily.style.display = 'none';
+            clusters.style.display = 'grid';
         }
+    }
 
-        function renderClusters(clusters) {
-            const container = document.getElementById('clusters-container');
-            container.innerHTML = '';
+    async function loadSummaries() {
+        show('loading');
+        try {
+            const [dailyRes, summariesRes] = await Promise.all([
+                fetch('/api/daily-summary'),
+                fetch('/api/summaries')
+            ]);
+            if (!summariesRes.ok) throw new Error(`HTTP ${summariesRes.status}`);
+            const dailyData = await dailyRes.json();
+            const data = await summariesRes.json();
 
-            clusters.forEach(cluster => {
-                const card = createClusterCard(cluster);
-                container.appendChild(card);
-            });
+            document.getElementById('update-time').textContent =
+                `Today's news · Updated ${formatDate(data.last_updated)}`;
 
-            showClusters();
+            const noTopics = !data.clusters || data.clusters.length === 0;
+            const noBrief = !dailyData.unified_summary || dailyData.unified_summary.startsWith('[');
+            if (noTopics && noBrief) { show('empty'); return; }
+
+            renderDailySummary(dailyData);
+            renderClusters(data.clusters);
+
+            const currentView = document.getElementById('btn-daily').classList.contains('is-active') ? 'daily' : 'topics';
+            switchView(currentView);
+        } catch (e) {
+            console.error(e);
+            document.getElementById('error-message').textContent =
+                'Unable to load news summaries. Please try again.';
+            show('error');
         }
+    }
 
-        function renderDailySummary(data) {
-            const container = document.getElementById('daily-container');
-
-            const uniqueSources = [...new Set(data.sources || [])];
-
-            const sourcesHtml = uniqueSources.map(source => {
-                const cred = formatCredibilityScore(0.85);
-                return `
-                    <a href="#" class="source-badge">
-                        <span class="source-name">${source}</span>
-                        <span class="credibility-score ${cred.class}">${cred.label}</span>
-                    </a>
-                `;
-            }).join('');
-
-            container.innerHTML = `
-                <div class="daily-summary-card">
-                    <div class="daily-summary-header">
-                        <h2 class="daily-summary-title">Today's Political Brief</h2>
-                        <div class="daily-summary-meta">
-                            <span class="meta-badge"><strong>${data.cluster_count || 0}</strong> topics</span>
-                            <span class="meta-badge"><strong>${data.total_articles || 0}</strong> articles</span>
-                            <span class="meta-badge"><strong>${data.source_count || 0}</strong> sources</span>
-                        </div>
-                    </div>
-                    <div class="ai-disclaimer">⚠️ AI-generated summary — verify against linked sources before sharing.</div>
-                    <div class="daily-summary-text">
-                        ${data.highlighted_summary || data.unified_summary}
-                    </div>
-                    <div class="daily-sources-section">
-                        <div class="daily-sources-label">Sources</div>
-                        <div class="daily-sources-list">
-                            ${sourcesHtml}
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-
-        function switchView(view) {
-            document.getElementById('btn-daily').classList.toggle('active', view === 'daily');
-            document.getElementById('btn-topics').classList.toggle('active', view === 'topics');
-
-            const dailyContainer = document.getElementById('daily-container');
-            const clustersContainer = document.getElementById('clusters-container');
-
-            if (view === 'daily') {
-                dailyContainer.style.display = 'block';
-                clustersContainer.style.display = 'none';
-            } else {
-                dailyContainer.style.display = 'none';
-                clustersContainer.style.display = 'grid';
-            }
-        }
-
-        async function loadSummaries() {
-            showLoading();
-
-            try {
-                const [dailyRes, summariesRes] = await Promise.all([
-                    fetch('/api/daily-summary'),
-                    fetch('/api/summaries')
-                ]);
-
-                if (!summariesRes.ok) {
-                    throw new Error(`HTTP ${summariesRes.status}`);
-                }
-
-                const dailyData = await dailyRes.json();
-                const data = await summariesRes.json();
-
-                document.getElementById('update-time').textContent = 
-                    `Today's News • Updated ${formatDate(data.last_updated)}`;
-
-                if ((!data.clusters || data.clusters.length === 0) && (!dailyData.unified_summary || dailyData.unified_summary.startsWith('['))) {
-                    showEmpty();
-                    return;
-                }
-
-                window._cachedDaily = dailyData;
-                window._cachedClusters = data.clusters;
-
-                renderDailySummary(dailyData);
-                renderClusters(data.clusters);
-
-                const currentView = document.getElementById('btn-daily').classList.contains('active') ? 'daily' : 'topics';
-                switchView(currentView);
-            } catch (error) {
-                console.error('Failed to load summaries:', error);
-                showError('Unable to load news summaries. Please try again.');
-            }
-        }
-
-        document.addEventListener('DOMContentLoaded', loadSummaries);
-    </script>
-</body>
-</html>
+    document.addEventListener('DOMContentLoaded', loadSummaries);
+</script>
+{% endblock %}

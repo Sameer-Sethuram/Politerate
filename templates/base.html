@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Politerate{% endblock %}</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+
+    {% block head_extra %}{% endblock %}
+    <style>{% block page_styles %}{% endblock %}</style>
+</head>
+<body>
+
+{#- Reusable logo macros. Swap colors by changing --brand-* in main.css. -#}
+{%- macro brand_icon(size='32') -%}
+<svg class="brand__icon" viewBox="0 0 48 48" width="{{ size }}" height="{{ size }}"
+     fill="none" aria-hidden="true">
+    <g stroke="currentColor" stroke-width="1.2">
+        {# dashed connector lines from central node to each outer node #}
+        <line x1="26" y1="24" x2="10" y2="8"   stroke-dasharray="2.5 2" />
+        <line x1="26" y1="24" x2="4"  y2="24"  stroke-dasharray="2.5 2" />
+        <line x1="26" y1="24" x2="10" y2="40"  stroke-dasharray="2.5 2" />
+
+        {# outer nodes #}
+        <circle cx="10" cy="8"  r="3.2" />
+        <circle cx="4"  cy="24" r="3.2" />
+        <circle cx="10" cy="40" r="3.2" />
+
+        {# central node: dashed ring + filled core dot + solid small ring #}
+        <circle cx="26" cy="24" r="7"   stroke-dasharray="2.5 2" opacity="0.7" />
+        <circle cx="26" cy="24" r="4" />
+    </g>
+    <g fill="currentColor">
+        <circle cx="10" cy="8"  r="1.15" />
+        <circle cx="4"  cy="24" r="1.15" />
+        <circle cx="10" cy="40" r="1.15" />
+        <circle cx="26" cy="24" r="1.5" />
+    </g>
+</svg>
+{%- endmacro -%}
+
+{%- macro wordmark() -%}
+<span class="brand__wordmark">Po<span class="brand__wordmark--accent">literate</span></span>
+{%- endmacro -%}
+
+<div class="topbar">
+    <header class="site-header">
+        <div class="site-header__inner">
+            <a href="/" class="brand" aria-label="Politerate home">
+                {{ brand_icon('32') }}
+                {{ wordmark() }}
+            </a>
+            <nav class="site-nav" aria-label="Primary">
+                <a href="/"         class="{% if active == 'today'    %}is-active{% endif %}">Today</a>
+                <a href="/learn"    class="{% if active == 'learn'    %}is-active{% endif %}">Learn</a>
+                <a href="/archive"  class="{% if active == 'archive'  %}is-active{% endif %}">Archive</a>
+                <a href="/glossary" class="{% if active == 'glossary' %}is-active{% endif %}">Glossary</a>
+            </nav>
+        </div>
+    </header>
+    {% block disclaimer %}{% endblock %}
+</div>
+
+{% block main %}
+<main>
+    {% block content %}{% endblock %}
+</main>
+{% endblock %}
+
+<footer class="site-footer">
+    <a href="/">Today</a> ·
+    <a href="/learn">Learn</a> ·
+    <a href="/archive">Archive</a> ·
+    <a href="/glossary">Glossary</a>
+    <div style="margin-top: 0.5rem;">Politerate — multi-source, unbiased political news.</div>
+</footer>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

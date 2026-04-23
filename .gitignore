@@ -49,6 +49,7 @@ logs/
 # Intermediate / scratch files
 resources_extracted.txt
 *.tmp
+outputs/
 
 # Jupyter checkpoints
 .ipynb_checkpoints/
