@@ -553,6 +553,107 @@ main.is-narrow { max-width: var(--container-narrow); }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ==================================================================
+ * Inline annotated text (analyzer + cluster deep-dive).
+ * Mirrors Sarah's Figma: flagged phrases become colored spans in the
+ * original prose with a hover tooltip; categories are color-coded.
+ * ================================================================== */
+.annotated-text {
+  font-size: 0.98rem;
+  line-height: 1.85;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.annot {
+  padding: 0.08rem 0.25rem;
+  border-radius: 3px;
+  border-bottom: 2px solid transparent;
+  cursor: help;
+  transition: background-color var(--transition), box-shadow var(--transition);
+}
+.annot:hover { box-shadow: 0 0 0 2px currentColor; }
+.annot--persuasion   { background: #fee2e2; border-bottom-color: #dc2626; color: #991b1b; }
+.annot--appeal       { background: #f3e8ff; border-bottom-color: #9333ea; color: #6b21a8; }
+.annot--exaggeration { background: #fce7f3; border-bottom-color: #db2777; color: #9d174d; }
+.annot--loaded       { background: #ffedd5; border-bottom-color: #ea580c; color: #9a3412; }
+.annot--emotion      { background: #fef3c7; border-bottom-color: #d97706; color: #78350f; }
+
+.annotation-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 1rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.annotation-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.annotation-legend__swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.annotate-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  background: var(--surface);
+  color: var(--action-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--transition);
+}
+.annotate-toggle:hover { background: var(--action-soft); }
+.annotate-toggle[aria-pressed="true"] {
+  background: var(--action-soft);
+  border-color: var(--action);
+  color: var(--action-hover);
+}
+
+.how-this-works {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.1rem 1.25rem;
+  margin-bottom: 1.5rem;
+}
+.how-this-works h3 {
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+  color: var(--brand-dark);
+}
+.how-this-works ul { list-style: none; padding: 0; margin: 0.5rem 0 0; }
+.how-this-works li {
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+  padding: 0.2rem 0;
+}
+.how-this-works li strong { color: var(--text); }
+.how-this-works__footnote {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.78rem;
+  color: var(--text-subtle);
+  font-style: italic;
+}
+
+/* ==================================================================
  * Responsive
  * ================================================================== */
 @media (max-width: 640px) {

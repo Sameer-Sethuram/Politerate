@@ -1,123 +1,24 @@
 """
-cache.py
+backend/db/cache.py
 
-SQLite-based caching for Politerate pipeline results.
-Stores articles, clusters, and metadata for hourly refresh.
+CRUD helpers for the Politerate SQLite cache — the news pipeline's
+working set (articles, clusters, seen URLs, archive, snapshots).
+
+Connection setup + schema lives in `backend/db/connection.py`. Re-exports
+`init_db` and `get_connection` here for backward compatibility with
+older imports.
 """
 
 import sqlite3
 import json
 import logging
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(levelname)s] %(message)s"
-)
+from backend.config import CACHE_MAX_AGE_HOURS
+from backend.db.connection import get_connection, init_db, get_db_path
+
 logger = logging.getLogger(__name__)
-
-DATABASE_PATH = "politerate.db"
-CACHE_MAX_AGE_HOURS = 1
-
-
-def get_db_path() -> str:
-    return DATABASE_PATH
-
-
-def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(DATABASE_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def init_db() -> None:
-    logger.info("Initializing database...")
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS articles (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            url TEXT UNIQUE,
-            title TEXT,
-            source TEXT,
-            text TEXT,
-            credibility_score REAL DEFAULT 1.0,
-            credibility_label TEXT DEFAULT 'unknown',
-            scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            cluster_id TEXT
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS clusters (
-            id TEXT PRIMARY KEY,
-            summary TEXT,
-            highlighted_summary TEXT,
-            sources TEXT,
-            urls TEXT,
-            titles TEXT,
-            terms TEXT,
-            article_count INTEGER,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS metadata (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS seen_urls (
-            url TEXT PRIMARY KEY,
-            first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS scraped_articles_archive (
-            url TEXT PRIMARY KEY,
-            title TEXT,
-            source TEXT,
-            text TEXT,
-            authors TEXT,
-            publish_date TEXT,
-            scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS daily_snapshots (
-            snapshot_date TEXT PRIMARY KEY,
-            snapshot_json TEXT,
-            article_count INTEGER,
-            cluster_count INTEGER,
-            source_count INTEGER,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_articles_cluster ON articles(cluster_id)
-    """)
-
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_articles_source ON articles(source)
-    """)
-
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_archive_scraped_at ON scraped_articles_archive(scraped_at)
-    """)
-
-    conn.commit()
-    conn.close()
-    logger.info("Database initialized")
 
 
 def save_articles(articles: list[dict]) -> int:
@@ -155,8 +56,37 @@ def save_articles(articles: list[dict]) -> int:
     return saved
 
 
+def _cluster_is_good(cluster: dict) -> bool:
+    """A cluster is 'good' if it carries a real BART summary — not empty and
+    not the [Summary unavailable...] / [No significant news...] placeholder."""
+    summary = (cluster.get("summary") or "").strip()
+    if not summary:
+        return False
+    if summary.startswith("["):
+        return False
+    return True
+
+
 def save_clusters(clusters: list[dict]) -> int:
+    """Persist clusters, with a guard against destroying good data.
+
+    If the incoming batch has NO clusters with real summaries (all placeholder
+    or empty), we skip the write entirely — the pipeline raced the model
+    load or otherwise produced garbage, and the old cached data is better
+    than an empty page.
+
+    Stale-while-revalidate contract: callers hit this with every pipeline
+    run; we only overwrite when the run actually produced usable output.
+    """
     if not clusters:
+        return 0
+
+    good_count = sum(1 for c in clusters if _cluster_is_good(c))
+    if good_count == 0:
+        logger.warning(
+            f"save_clusters: {len(clusters)} incoming clusters are all "
+            f"placeholder/empty — skipping write to preserve existing cache"
+        )
         return 0
 
     conn = get_connection()
@@ -202,7 +132,16 @@ def save_clusters(clusters: list[dict]) -> int:
 
     conn.commit()
     conn.close()
-    logger.info(f"Saved {saved} clusters to cache")
+    logger.info(f"Saved {saved} clusters to cache (good={good_count}/{len(clusters)})")
+
+    # Auto-snapshot the freshly-saved state so there's always a last-known-good
+    # snapshot available for stale-while-revalidate fallback. Any save that
+    # got past the good_count guard is, by definition, good enough to freeze.
+    try:
+        save_daily_snapshot()
+    except Exception as e:
+        logger.warning(f"Post-save snapshot failed (non-fatal): {e}")
+
     return saved
 
 
@@ -239,6 +178,10 @@ def is_stale() -> bool:
 
 
 def get_cached_summaries() -> dict:
+    """Return the current cluster snapshot. If the live `clusters` table is
+    empty OR every cluster is a placeholder (happens when the pipeline
+    races the model load), fall back to the most recent daily_snapshot —
+    stale data beats an empty page."""
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -277,10 +220,39 @@ def get_cached_summaries() -> dict:
 
     conn.close()
 
+    has_good = any(_cluster_is_good(c) for c in clusters)
+    if not has_good:
+        fallback = _fallback_to_latest_snapshot()
+        if fallback is not None:
+            logger.info(
+                "get_cached_summaries: live clusters are empty/placeholder — "
+                "serving latest daily snapshot instead"
+            )
+            return fallback
+
     return {
         "clusters": clusters,
         "article_count": article_count,
-        "last_updated": get_last_refresh()
+        "last_updated": get_last_refresh(),
+        "served_from": "live",
+    }
+
+
+def _fallback_to_latest_snapshot() -> Optional[dict]:
+    """Return the newest daily_snapshot's cluster payload, or None if there
+    are no snapshots yet. Output matches get_cached_summaries()'s shape."""
+    snapshots = list_snapshot_dates()
+    if not snapshots:
+        return None
+    newest = snapshots[0]["date"]
+    snap = get_snapshot(newest)
+    if not snap or not snap.get("clusters"):
+        return None
+    return {
+        "clusters": snap["clusters"],
+        "article_count": snap.get("article_count", 0),
+        "last_updated": snap.get("last_updated") or snap.get("created_at"),
+        "served_from": f"snapshot:{newest}",
     }
 
 
@@ -586,6 +558,6 @@ def list_snapshot_dates() -> list[dict]:
 
 if __name__ == "__main__":
     init_db()
-    print(f"Database initialized at {DATABASE_PATH}")
+    print(f"Database initialized at {get_db_path()}")
     print(f"Last refresh: {get_last_refresh()}")
     print(f"Is stale: {is_stale()}")

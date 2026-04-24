@@ -1,16 +1,16 @@
 """
-politerate_quiz.py
+backend/quiz/generator.py
 
 Rule-based quiz and term-of-the-day generator for the Politerate learning tool.
-Pulls from the glossary in politerate.py and prioritizes terms that appear in
-today's scraped articles so questions stay grounded in current events.
+Pulls from the glossary in backend/pipeline/highlighter.py and prioritizes terms
+that appear in today's scraped articles so questions stay grounded in current events.
 """
 
 import random
 import re
 from typing import Optional
 
-from politerate import TermHighlighter
+from backend.pipeline.highlighter import TermHighlighter
 
 
 SNIPPET_CHARS = 220

@@ -1,5 +1,5 @@
 """
-pipeline.py
+backend/pipeline/summarizer.py
 
 Orchestrates the full Politerate pipeline:
 1. Scrape articles from RSS feeds
@@ -10,18 +10,19 @@ Orchestrates the full Politerate pipeline:
 6. Highlight political terms
 
 Usage:
-    from pipeline import run_pipeline
-    results = run_pipeline()
+    from backend.pipeline.summarizer import PoliteratePipeline
+    pipeline = PoliteratePipeline()
+    results = pipeline.run()
 """
 
 import logging
 import re
 from typing import Optional
 
-from preprocessor import preprocess_batch
-from clustering import cluster_articles, ArticleClusterer
-from credibility import filter_by_credibility
-from politerate import TermHighlighter
+from backend.pipeline.preprocessor import preprocess_batch
+from backend.pipeline.clustering import cluster_articles, ArticleClusterer
+from backend.pipeline.credibility import filter_by_credibility
+from backend.pipeline.highlighter import TermHighlighter
 
 logging.basicConfig(
     level=logging.INFO,
@@ -197,8 +198,8 @@ class PoliteratePipeline:
     def scrape(self) -> dict:
         logger.info("Step 1: Scraping articles...")
         try:
-            from rss_link_scraper import get_all_top_story_links
-            from webscraper import scrape_articles_by_source
+            from backend.pipeline.rss_scraper import get_all_top_story_links
+            from backend.pipeline.scraper import scrape_articles_by_source
         except ImportError as e:
             logger.error(f"Import error: {e}")
             return {}
@@ -422,17 +423,29 @@ class PoliteratePipeline:
         ]
         filtered_clusters.sort(key=lambda c: c.get("article_count", 0), reverse=True)
 
-        all_sources = set()
+        # Collect unique sources across all clusters. One representative URL
+        # per source (the first one we saw for that source) so badges can
+        # link somewhere even at the daily-brief level.
+        source_to_url: dict[str, str] = {}
         all_article_count = 0
         for cluster in filtered_clusters:
-            all_sources.update(cluster.get("sources", []))
+            sources = cluster.get("sources", [])
+            urls = cluster.get("urls", [])
+            for i, src in enumerate(sources):
+                if src and src not in source_to_url:
+                    source_to_url[src] = urls[i] if i < len(urls) else ""
             all_article_count += cluster.get("article_count", 0)
+
+        unique_sources = sorted(source_to_url.keys())
+        source_links = [{"source": s, "url": source_to_url[s]} for s in unique_sources]
 
         return {
             "unified_summary": self.create_daily_summary(filtered_clusters),
             "highlighted_summary": self.highlighter.highlight(self.create_daily_summary(filtered_clusters)),
             "cluster_count": len(filtered_clusters),
-            "source_count": len(all_sources),
+            "source_count": len(unique_sources),
+            "sources": unique_sources,
+            "source_links": source_links,
             "total_articles": all_article_count,
             "clusters": filtered_clusters
         }
@@ -470,13 +483,13 @@ class PoliteratePipeline:
     def _build_raw_articles_with_dedup(self) -> dict:
         """Fetch RSS links, download only new URLs, merge with archive. Returns {source: {url: article}}."""
         try:
-            from rss_link_scraper import get_all_top_story_links
-            from webscraper import scrape_articles_by_source
+            from backend.pipeline.rss_scraper import get_all_top_story_links
+            from backend.pipeline.scraper import scrape_articles_by_source
         except ImportError as e:
             logger.error(f"Import error: {e}")
             return {}
 
-        from cache import (
+        from backend.db.cache import (
             filter_unseen_urls,
             mark_urls_seen,
             archive_articles,

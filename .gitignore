@@ -67,9 +67,9 @@ models/credibility/*.safetensors
 # Summarizer model folder
 fine_tuned_bart_news/
 
-# Credibility / DeBERTa weights (git-ignored; loaded at runtime)
-credibility/weights/*
-!credibility/weights/.gitkeep
+# DeBERTa analyzer weights (git-ignored; downloaded from HF Hub at runtime)
+backend/inference/weights/*
+!backend/inference/weights/.gitkeep
 
 # Dev scratch: pipeline test runners and their outputs
 outputs/

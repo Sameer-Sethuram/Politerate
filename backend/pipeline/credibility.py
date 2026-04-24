@@ -1,78 +1,25 @@
 """
-Credibility / bias analyzer package.
+Pipeline-level credibility filter.
 
-Two interfaces live here:
+Gates scraped articles before they enter clustering. Routes through
+`backend.inference.get_analyzer()` so the same DeBERTa model that powers
+the Text Analyzer page also scores the news feed. When weights aren't
+available, MockAnalyzer scores articles via content heuristics so the
+pipeline keeps running end-to-end.
 
-1. `get_analyzer()` — returns the multi-head DeBERTa analyzer (real one
-   if weights are in `credibility/weights/analyzer.pt`, else a
-   MockAnalyzer). Used by `/api/analyze` to power the Text Analyzer
-   page. Ported from Sarah's `backend/inference/` work.
-
-2. `check_credibility(article)` / `filter_by_credibility(articles)` —
-   the article-filtering interface the news pipeline calls during
-   scraping. Currently returns the stub pass-through (all articles
-   pass) while weights are pending; once BUG-3 lands, this can be
-   wired through `get_analyzer().predict_article()` to derive a real
-   credibility score.
+Public API (preserved from the old top-level `credibility.py`):
+    CredibilityChecker
+    check_credibility(article) -> dict
+    filter_by_credibility(articles) -> (passed, failed)
 """
 
 import logging
-import os
-from pathlib import Path
+
+from backend.config import CREDIBILITY_THRESHOLD
+from backend.inference import get_analyzer
 
 logger = logging.getLogger(__name__)
 
-WEIGHTS_DIR = Path(__file__).resolve().parent / "weights"
-DEFAULT_WEIGHTS_PATH = WEIGHTS_DIR / "analyzer.pt"
-CREDIBILITY_THRESHOLD = 0.6
-
-_analyzer_instance = None
-
-
-def _weights_path() -> Path:
-    override = os.environ.get("POLITERATE_CREDIBILITY_WEIGHTS")
-    return Path(override) if override else DEFAULT_WEIGHTS_PATH
-
-
-def get_analyzer():
-    """Return a cached analyzer instance. Uses the real PoliterateAnalyzer
-    if weights are present, otherwise a MockAnalyzer."""
-    global _analyzer_instance
-    if _analyzer_instance is not None:
-        return _analyzer_instance
-
-    weights = _weights_path()
-    if weights.is_file():
-        try:
-            from .predictor import PoliterateAnalyzer
-            logger.info(f"Loading PoliterateAnalyzer from {weights}")
-            _analyzer_instance = PoliterateAnalyzer(
-                weights_path=str(weights),
-                device=os.environ.get("POLITERATE_DEVICE", "cpu"),
-            )
-            return _analyzer_instance
-        except Exception as e:
-            logger.warning(
-                "Failed to load real PoliterateAnalyzer (%s); falling back to MockAnalyzer",
-                e,
-            )
-
-    logger.info("No credibility weights at %s — using MockAnalyzer", weights)
-    from .mock import MockAnalyzer
-    _analyzer_instance = MockAnalyzer()
-    return _analyzer_instance
-
-
-def reset_analyzer():
-    """Drop the cached analyzer so `get_analyzer()` will re-initialize."""
-    global _analyzer_instance
-    _analyzer_instance = None
-
-
-# ==================================================================
-# Legacy pipeline-filter interface (replaces the old top-level
-# credibility.py module). Preserved so pipeline.py keeps working.
-# ==================================================================
 
 class CredibilityChecker:
     def __init__(self, threshold: float = CREDIBILITY_THRESHOLD):
@@ -85,8 +32,7 @@ class CredibilityChecker:
         logger.info(f"CredibilityChecker routing through analyzer ({version})")
         return lambda text: self._analyzer_impl(analyzer, text)
 
-    @staticmethod
-    def _analyzer_impl(analyzer, text: str) -> dict:
+    def _analyzer_impl(self, analyzer, text: str) -> dict:
         """Derive a credibility dict from analyzer.predict_article() output.
         score = 1 - subjectivity_ratio (more loaded/emotional = less credible)."""
         result = analyzer.predict_article(text)
@@ -103,7 +49,7 @@ class CredibilityChecker:
 
         return {
             "score": score,
-            "flag": score < CREDIBILITY_THRESHOLD,
+            "flag": score < self.threshold,
             "reasons": reasons,
             "bias_label": article.get("dominant_bias") or "unknown",
             "confidence": round(confidence, 3),

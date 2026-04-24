@@ -258,21 +258,28 @@ class TermHighlighter:
         return definitions
 
     def find_terms_with_sources(self, articles: list[dict]) -> dict:
-        """Returns dict mapping term -> list of {source, url} for each article containing the term."""
-        term_article_map = {}
+        """Returns dict mapping term -> list of {source, url} for each article containing the term.
+
+        Keys are the glossary's canonical-case terms (e.g. "super PAC"), NOT
+        the lowercase form the regex matches on. This matters because
+        downstream consumers (quiz generator, Text Analyzer) do
+        `glossary[term]` lookups which are case-sensitive.
+        """
+        # Map lowercase → canonical so we can normalize findall results.
+        lower_to_canonical = {k.lower(): k for k in self.glossary.keys()}
+
+        term_article_map: dict = {}
 
         for article in articles:
             text = article.get("text", "")
-            found = set(self.term_pattern.findall(text.lower()))
+            found_lower = set(self.term_pattern.findall(text.lower()))
 
-            for term in found:
-                if term not in term_article_map:
-                    term_article_map[term] = []
-
-                term_article_map[term].append({
+            for lower_term in found_lower:
+                canonical = lower_to_canonical.get(lower_term, lower_term)
+                term_article_map.setdefault(canonical, []).append({
                     "source": article.get("source", "Unknown Source"),
                     "url": article.get("url", "#"),
-                    "title": article.get("title", "Untitled Article")
+                    "title": article.get("title", "Untitled Article"),
                 })
 
         return term_article_map

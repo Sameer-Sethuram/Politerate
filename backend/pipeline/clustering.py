@@ -147,7 +147,10 @@ class ArticleClusterer:
 
         cluster_summaries = {}
         for cluster_id, cluster_articles in clusters.items():
-            sources = list(set(a.get("source", "unknown") for a in cluster_articles))
+            # sources/urls/titles are parallel lists — sources[i], urls[i], titles[i]
+            # all describe the same article. DO NOT dedupe sources here; the
+            # frontend relies on positional pairing to build clickable badges.
+            sources = [a.get("source", "unknown") for a in cluster_articles]
             urls = [a.get("url", "") for a in cluster_articles]
             titles = [a.get("title", "Untitled") for a in cluster_articles]
 
@@ -155,7 +158,7 @@ class ArticleClusterer:
 
             cluster_summaries[cluster_id] = {
                 "articles": cluster_articles,
-                "source_count": len(sources),
+                "source_count": len(set(sources)),
                 "sources": sources,
                 "article_count": len(cluster_articles),
                 "urls": urls,

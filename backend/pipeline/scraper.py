@@ -122,9 +122,8 @@ def scrape_articles_by_source(source_dict):
 # ------------------------------------------------------------
 # Example usage (manual testing)
 # ------------------------------------------------------------
-from rss_link_scraper import get_all_top_story_links
-
 if __name__ == "__main__":
-    test_links = get_all_top_story_links()    
+    from backend.pipeline.rss_scraper import get_all_top_story_links
+    test_links = get_all_top_story_links()
     data = scrape_articles_by_source(test_links)
     print(data)

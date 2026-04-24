@@ -183,6 +183,23 @@
         </div>
     </section>
 
+    <aside class="how-this-works" aria-label="How this works">
+        <h3>How this works</h3>
+        <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 0.3rem;">
+            This analyzer uses machine learning models to detect patterns in text:
+        </p>
+        <ul>
+            <li><strong>Text is sent to your local model server</strong> for analysis</li>
+            <li><strong>AI models identify</strong> emotionally charged words and persuasion techniques</li>
+            <li><strong>Each text chunk is labeled</strong> with its classification and explanation</li>
+            <li><strong>Results are highlighted</strong> in the original text for easy review</li>
+            <li><strong>Detailed breakdown</strong> shows exactly why each section was flagged</li>
+        </ul>
+        <div class="how-this-works__footnote">
+            All analysis happens on your local model server. No data is sent to third-party services.
+        </div>
+    </aside>
+
     <section id="result-area"></section>
 </main>
 {% endblock %}
@@ -243,10 +260,63 @@
 
     function formatTechnique(label) { return label.replace(/_/g, ' '); }
 
+    const TECHNIQUE_CATEGORY = {
+        'Loaded_Language': 'persuasion',
+        'Name_Calling_Labeling': 'persuasion',
+        'Appeal_to_fear_prejudice': 'appeal',
+        'Appeal_to_Authority': 'appeal',
+        'Flag_Waving': 'appeal',
+        'Exaggeration_Minimization': 'exaggeration',
+        'Bandwagon': 'exaggeration',
+        'Black_and_White_Fallacy': 'exaggeration',
+        'Doubt': 'loaded',
+        'Thought_terminating_Cliches': 'loaded',
+    };
+
+    function chunkCategory(chunk) {
+        const techs = chunk.techniques || [];
+        if (techs.length) {
+            const top = techs.slice().sort((a, b) => (b.confidence || 0) - (a.confidence || 0))[0];
+            return TECHNIQUE_CATEGORY[top.label] || 'loaded';
+        }
+        if (chunk.emotion && chunk.emotion !== 'neutral') return 'emotion';
+        return null;
+    }
+
+    function annotateChunks(chunks) {
+        if (!chunks || !chunks.length) return '';
+        return chunks.map(c => {
+            const cat = chunkCategory(c);
+            if (!cat) return escapeHtml(c.text);
+            const techList = (c.techniques || [])
+                .map(t => `${formatTechnique(t.label)} (${Math.round((t.confidence || 0) * 100)}%)`)
+                .join(', ');
+            const parts = [];
+            if (techList) parts.push('Techniques: ' + techList);
+            if (c.emotion && c.emotion !== 'neutral') parts.push('Emotion: ' + c.emotion);
+            if (c.bias && c.bias !== 'center') parts.push('Bias: ' + c.bias);
+            const tooltip = parts.join(' | ') || 'flagged passage';
+            return `<span class="annot annot--${cat}" title="${escapeHtml(tooltip)}">${escapeHtml(c.text)}</span>`;
+        }).join(' ');
+    }
+
+    function annotationLegendHtml() {
+        return `
+            <div class="annotation-legend" role="note">
+                <strong style="color: var(--text-muted);">Legend:</strong>
+                <span class="annotation-legend__item"><span class="annotation-legend__swatch" style="background: #fee2e2;"></span>Persuasion</span>
+                <span class="annotation-legend__item"><span class="annotation-legend__swatch" style="background: #f3e8ff;"></span>Appeal</span>
+                <span class="annotation-legend__item"><span class="annotation-legend__swatch" style="background: #fce7f3;"></span>Exaggeration</span>
+                <span class="annotation-legend__item"><span class="annotation-legend__swatch" style="background: #ffedd5;"></span>Loaded</span>
+                <span class="annotation-legend__item"><span class="annotation-legend__swatch" style="background: #fef3c7;"></span>Emotional</span>
+            </div>`;
+    }
+
     function renderResult(data) {
         const a = data.article || {};
         const chunks = data.chunks || [];
         const cached = data.cached ? ' <span class="badge badge--accent" style="margin-left: 0.5rem;">cached</span>' : '';
+        const rawText = textarea.value;
 
         const techniqueSummary = Object.entries(a.technique_counts || {})
             .sort((x, y) => y[1] - x[1])
@@ -256,10 +326,28 @@
         const emotionClass = 'emo-' + (a.dominant_emotion || 'neutral');
         const subjPct = Math.round(100 * (a.subjectivity_ratio || 0));
 
-        const articleCard = `
+        const annotatedHtml = annotateChunks(chunks);
+        const annotatedCard = chunks.length ? `
             <section class="card card--feature" style="margin-bottom: 1rem;">
+                <header class="brief__head" style="align-items: flex-start;">
+                    <div>
+                        <h2 class="brief__title">Annotated text${cached}</h2>
+                        <p style="font-size: 0.82rem; color: var(--text-subtle); margin-top: 0.2rem;">Hover any highlighted passage for the detected technique, emotion, and confidence.</p>
+                    </div>
+                    <button type="button" class="annotate-toggle" id="annotate-toggle" aria-pressed="true">
+                        Show analysis
+                    </button>
+                </header>
+                ${annotationLegendHtml()}
+                <div class="annotated-text" id="annotated-view">${annotatedHtml}</div>
+                <div class="annotated-text" id="plain-view" hidden>${escapeHtml(rawText)}</div>
+            </section>
+        ` : '';
+
+        const articleCard = `
+            <section class="card" style="margin-bottom: 1rem;">
                 <header class="brief__head">
-                    <h2 class="brief__title">Article analysis${cached}</h2>
+                    <h2 class="brief__title">Summary</h2>
                     <div class="brief__meta">
                         <span class="badge"><strong>${chunks.length}</strong>&nbsp;chunks</span>
                         <span class="badge">model: <strong>${escapeHtml(data.model_version || '—')}</strong></span>
@@ -305,8 +393,30 @@
                 </div>`;
         }).join('');
 
-        result.innerHTML = articleCard
-            + (chunks.length ? `<h3 class="chunks-heading">Chunk-by-chunk breakdown</h3>` + chunkCards : '');
+        result.innerHTML = annotatedCard
+            + articleCard
+            + (chunks.length ? `<h3 class="chunks-heading">Detailed breakdown</h3>` + chunkCards : '');
+
+        const toggle = document.getElementById('annotate-toggle');
+        const annotatedView = document.getElementById('annotated-view');
+        const plainView = document.getElementById('plain-view');
+        if (toggle && annotatedView && plainView) {
+            toggle.addEventListener('click', () => {
+                const showing = toggle.getAttribute('aria-pressed') === 'true';
+                if (showing) {
+                    annotatedView.hidden = true;
+                    plainView.hidden = false;
+                    toggle.setAttribute('aria-pressed', 'false');
+                    toggle.textContent = 'Show analysis';
+                } else {
+                    annotatedView.hidden = false;
+                    plainView.hidden = true;
+                    toggle.setAttribute('aria-pressed', 'true');
+                    toggle.textContent = 'Hide analysis';
+                }
+            });
+            toggle.textContent = 'Hide analysis';
+        }
     }
 
     async function runAnalyze() {

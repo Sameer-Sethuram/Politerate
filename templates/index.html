@@ -161,14 +161,15 @@
 
     function renderDailySummary(data) {
         const container = document.getElementById('daily-container');
-        const uniqueSources = [...new Set(data.sources || [])];
-        const sourcesHtml = uniqueSources.map(source => {
-            const cred = formatCredibilityScore(0.85);
+        const sourceLinks = Array.isArray(data.source_links) ? data.source_links : [];
+        const sourcesHtml = sourceLinks.map(entry => {
+            const src = entry.source || '';
+            const url = entry.url || '#';
+            const target = url !== '#' ? 'target="_blank" rel="noopener noreferrer"' : '';
             return `
-                <span class="source-badge">
-                    <span>${source}</span>
-                    <span class="source-badge__score ${cred.class}">${cred.label}</span>
-                </span>`;
+                <a href="${url}" ${target} class="source-badge">
+                    <span>${src}</span>
+                </a>`;
         }).join('');
 
         container.innerHTML = `

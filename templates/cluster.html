@@ -287,6 +287,62 @@
     }
     function formatTechnique(label) { return label.replace(/_/g, ' '); }
 
+    const TECHNIQUE_CATEGORY = {
+        'Loaded_Language': 'persuasion',
+        'Name_Calling_Labeling': 'persuasion',
+        'Appeal_to_fear_prejudice': 'appeal',
+        'Appeal_to_Authority': 'appeal',
+        'Flag_Waving': 'appeal',
+        'Exaggeration_Minimization': 'exaggeration',
+        'Bandwagon': 'exaggeration',
+        'Black_and_White_Fallacy': 'exaggeration',
+        'Doubt': 'loaded',
+        'Thought_terminating_Cliches': 'loaded',
+    };
+
+    function chunkCategory(chunk) {
+        const techs = chunk.techniques || [];
+        if (techs.length) {
+            const top = techs.slice().sort((a, b) => (b.confidence || 0) - (a.confidence || 0))[0];
+            return TECHNIQUE_CATEGORY[top.label] || 'loaded';
+        }
+        if (chunk.emotion && chunk.emotion !== 'neutral') return 'emotion';
+        return null;
+    }
+
+    function annotateChunks(chunks) {
+        if (!chunks || !chunks.length) return '';
+        return chunks.map(c => {
+            const cat = chunkCategory(c);
+            if (!cat) return escapeHtml(c.text);
+            const techList = (c.techniques || [])
+                .map(t => `${formatTechnique(t.label)} (${Math.round((t.confidence || 0) * 100)}%)`)
+                .join(', ');
+            const parts = [];
+            if (techList) parts.push('Techniques: ' + techList);
+            if (c.emotion && c.emotion !== 'neutral') parts.push('Emotion: ' + c.emotion);
+            if (c.bias && c.bias !== 'center') parts.push('Bias: ' + c.bias);
+            const tooltip = parts.join(' | ') || 'flagged passage';
+            return `<span class="annot annot--${cat}" title="${escapeHtml(tooltip)}">${escapeHtml(c.text)}</span>`;
+        }).join(' ');
+    }
+
+    function plainChunks(chunks) {
+        return (chunks || []).map(c => escapeHtml(c.text)).join(' ');
+    }
+
+    function annotationLegendHtml() {
+        return `
+            <div class="annotation-legend" role="note">
+                <strong style="color: var(--text-muted);">Legend:</strong>
+                <span class="annotation-legend__item"><span class="annotation-legend__swatch" style="background: #fee2e2;"></span>Persuasion</span>
+                <span class="annotation-legend__item"><span class="annotation-legend__swatch" style="background: #f3e8ff;"></span>Appeal</span>
+                <span class="annotation-legend__item"><span class="annotation-legend__swatch" style="background: #fce7f3;"></span>Exaggeration</span>
+                <span class="annotation-legend__item"><span class="annotation-legend__swatch" style="background: #ffedd5;"></span>Loaded</span>
+                <span class="annotation-legend__item"><span class="annotation-legend__swatch" style="background: #fef3c7;"></span>Emotional</span>
+            </div>`;
+    }
+
     function biasIndicator(bias) {
         const segs = ['left', 'center', 'right'].map(t =>
             `<span class="bias-indicator__seg bias-indicator__seg--${t}${t===bias?' is-active':''}"></span>`
@@ -331,7 +387,21 @@
         const emotionClass = 'emo-' + (a.dominant_emotion || 'neutral');
         const subjPct = Math.round(100 * (a.subjectivity_ratio || 0));
 
+        const annotatedHtml = annotateChunks(chunks);
+        const plainHtml = plainChunks(chunks);
+        const slotId = 'annot-' + Math.random().toString(36).slice(2, 9);
+        const annotatedBlock = chunks.length ? `
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap;">
+                <span style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-subtle); font-weight: 700;">Annotated article</span>
+                <button type="button" class="annotate-toggle" aria-pressed="true" data-slot="${slotId}">Hide analysis</button>
+            </div>
+            ${annotationLegendHtml()}
+            <div class="annotated-text" data-role="annotated" data-slot="${slotId}">${annotatedHtml}</div>
+            <div class="annotated-text" data-role="plain" data-slot="${slotId}" hidden>${plainHtml}</div>
+        ` : '';
+
         const summaryGrid = `
+            <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-subtle); font-weight: 700; margin: 1.25rem 0 0.5rem;">Summary</div>
             <div class="article-summary">
                 <div class="article-summary__cell">
                     <div class="article-summary__label">Dominant bias</div>
@@ -378,7 +448,27 @@
             `;
         }
 
-        slot.innerHTML = summaryGrid + chunksHtml;
+        slot.innerHTML = annotatedBlock + summaryGrid + chunksHtml;
+
+        const annotToggle = slot.querySelector('.annotate-toggle');
+        if (annotToggle) {
+            const annotView = slot.querySelector('[data-role="annotated"]');
+            const plainView = slot.querySelector('[data-role="plain"]');
+            annotToggle.addEventListener('click', () => {
+                const showing = annotToggle.getAttribute('aria-pressed') === 'true';
+                if (showing) {
+                    annotView.hidden = true;
+                    plainView.hidden = false;
+                    annotToggle.setAttribute('aria-pressed', 'false');
+                    annotToggle.textContent = 'Show analysis';
+                } else {
+                    annotView.hidden = false;
+                    plainView.hidden = true;
+                    annotToggle.setAttribute('aria-pressed', 'true');
+                    annotToggle.textContent = 'Hide analysis';
+                }
+            });
+        }
 
         const toggle = slot.querySelector('.chunks-toggle');
         const detail = slot.querySelector('.chunks-detail');
