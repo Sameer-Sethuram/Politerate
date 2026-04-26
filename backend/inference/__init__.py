@@ -15,7 +15,7 @@ import logging
 import os
 from pathlib import Path
 
-from backend.config import (
+from ..config import (
     analyzer_weights_path,
     DEVICE,
     HF_ANALYZER_MODEL_ID,
