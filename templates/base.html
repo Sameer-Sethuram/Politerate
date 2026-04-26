@@ -79,11 +79,12 @@
                 {{ wordmark() }}
             </a>
             <nav class="site-nav" aria-label="Primary">
-                <a href="/"         class="{% if active == 'today'    %}is-active{% endif %}">Today</a>
-                <a href="/learn"    class="{% if active == 'learn'    %}is-active{% endif %}">Learn</a>
-                <a href="/analyzer" class="{% if active == 'analyzer' %}is-active{% endif %}">Analyzer</a>
-                <a href="/archive"  class="{% if active == 'archive'  %}is-active{% endif %}">Archive</a>
-                <a href="/glossary" class="{% if active == 'glossary' %}is-active{% endif %}">Glossary</a>
+                <a href="/"              class="{% if active == 'today'    %}is-active{% endif %}">Today</a>
+                <a href="/all-articles" class="{% if active == 'articles'  %}is-active{% endif %}">Articles</a>
+                <a href="/learn"        class="{% if active == 'learn'    %}is-active{% endif %}">Learn</a>
+                <a href="/analyzer"     class="{% if active == 'analyzer' %}is-active{% endif %}">Analyzer</a>
+                <a href="/archive"      class="{% if active == 'archive'  %}is-active{% endif %}">Archive</a>
+                <a href="/glossary"     class="{% if active == 'glossary' %}is-active{% endif %}">Glossary</a>
             </nav>
         </div>
     </header>
@@ -98,6 +99,7 @@
 
 <footer class="site-footer">
     <a href="/">Today</a> ·
+    <a href="/all-articles">Articles</a> ·
     <a href="/learn">Learn</a> ·
     <a href="/analyzer">Analyzer</a> ·
     <a href="/archive">Archive</a> ·

@@ -66,6 +66,59 @@ def _cluster_is_good(cluster: dict) -> bool:
         return False
     return True
 
+def save_unclustered_articles(articles: list[dict]) -> int:
+    """Persist articles that didn't make it into a named cluster.
+
+    Uses INSERT OR IGNORE so a previously-clustered article is never
+    demoted (its cluster_id stays intact if it already exists in the table).
+    Each article may carry a 'cluster_id' key set by the caller (e.g.
+    'singleton_<hash>' for singletons, or absent for credibility failures).
+    """
+    if not articles:
+        return 0
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    saved = 0
+    now = datetime.now().isoformat()
+
+    for article in articles:
+        analysis = article.get("_analysis") or {}
+        article_agg = analysis.get("article") or {}
+        has_analysis = bool(analysis)
+        try:
+            cursor.execute("""
+                INSERT OR IGNORE INTO articles
+                (url, title, source, text, credibility_score, credibility_label, cluster_id, scraped_at,
+                 analysis_json, article_json, bias_label, dominant_emotion, subjectivity_ratio,
+                 analysis_status, analyzed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                article.get("url", ""),
+                article.get("title", ""),
+                article.get("source", "unknown"),
+                article.get("text", ""),
+                article.get("credibility", {}).get("score"),
+                article.get("credibility", {}).get("bias_label", "unknown"),
+                article.get("cluster_id"),
+                now,
+                json.dumps(analysis.get("chunks")) if has_analysis else None,
+                json.dumps(article_agg) if has_analysis else None,
+                article_agg.get("dominant_bias"),
+                article_agg.get("dominant_emotion"),
+                article_agg.get("subjectivity_ratio"),
+                "done" if has_analysis else "pending",
+                now if has_analysis else None,
+            ))
+            saved += 1
+        except Exception as e:
+            logger.warning(f"Failed to save unclustered article {article.get('url')}: {e}")
+
+    conn.commit()
+    conn.close()
+    logger.info(f"Saved {saved} unclustered articles")
+    return saved
+
 
 def save_clusters(clusters: list[dict]) -> int:
     """Persist clusters, with a guard against destroying good data.
@@ -94,7 +147,6 @@ def save_clusters(clusters: list[dict]) -> int:
     saved = 0
 
     cursor.execute("DELETE FROM clusters")
-    cursor.execute("DELETE FROM articles")
 
     for cluster in clusters:
         cursor.execute("""
@@ -114,10 +166,15 @@ def save_clusters(clusters: list[dict]) -> int:
         ))
 
         for article in cluster.get("articles", []):
+            analysis = article.get("_analysis") or {}
+            article_agg = analysis.get("article") or {}
+            has_analysis = bool(analysis)
             cursor.execute("""
-                INSERT OR REPLACE INTO articles 
-                (url, title, source, text, credibility_score, credibility_label, cluster_id, scraped_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO articles
+                (url, title, source, text, credibility_score, credibility_label, cluster_id, scraped_at,
+                 analysis_json, article_json, bias_label, dominant_emotion, subjectivity_ratio,
+                 analysis_status, analyzed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 article.get("url", ""),
                 article.get("title", ""),
@@ -126,7 +183,14 @@ def save_clusters(clusters: list[dict]) -> int:
                 article.get("credibility", {}).get("score", 1.0),
                 article.get("credibility", {}).get("bias_label", "unknown"),
                 str(cluster.get("cluster_id", "")),
-                datetime.now().isoformat()
+                datetime.now().isoformat(),
+                json.dumps(analysis.get("chunks")) if has_analysis else None,
+                json.dumps(article_agg) if has_analysis else None,
+                article_agg.get("dominant_bias"),
+                article_agg.get("dominant_emotion"),
+                article_agg.get("subjectivity_ratio"),
+                "done" if has_analysis else "pending",
+                datetime.now().isoformat() if has_analysis else None,
             ))
         saved += 1
 

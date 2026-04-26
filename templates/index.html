@@ -109,17 +109,10 @@
             const credData = (cluster.source_credibility && cluster.source_credibility[i]) || {};
             const rawScore = (credData.score !== null && credData.score !== undefined) ? credData.score : null;
             if (rawScore === null) {
-                return `
-                    <a href="${url}" target="_blank" rel="noopener noreferrer" class="source-badge">
-                        <span>${source}</span>
-                    </a>`;
+                return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="source-badge"><span>${source}</span></a>`;
             }
             const cred = formatCredibilityScore(rawScore);
-            return `
-                <a href="${url}" target="_blank" rel="noopener noreferrer" class="source-badge">
-                    <span>${source}</span>
-                    <span class="source-badge__score ${cred.class}">${cred.label}</span>
-                </a>`;
+            return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="source-badge"><span>${source}</span><span class="source-badge__score ${cred.class}">${cred.label}</span></a>`;
         }).join('');
 
         const termsHtml = (cluster.defined_terms && cluster.defined_terms.length > 0)
@@ -166,10 +159,7 @@
             const src = entry.source || '';
             const url = entry.url || '#';
             const target = url !== '#' ? 'target="_blank" rel="noopener noreferrer"' : '';
-            return `
-                <a href="${url}" ${target} class="source-badge">
-                    <span>${src}</span>
-                </a>`;
+            return `<a href="${url}" ${target} class="source-badge"><span>${src}</span></a>`;
         }).join('');
 
         container.innerHTML = `
@@ -197,14 +187,12 @@
         ['loading', 'error', 'empty'].forEach(id => {
             document.getElementById(id).style.display = 'none';
         });
-        const daily = document.getElementById('daily-container');
-        const clusters = document.getElementById('clusters-container');
         if (view === 'daily') {
-            daily.style.display = 'block';
-            clusters.style.display = 'none';
+            document.getElementById('daily-container').style.display = 'block';
+            document.getElementById('clusters-container').style.display = 'none';
         } else {
-            daily.style.display = 'none';
-            clusters.style.display = 'grid';
+            document.getElementById('daily-container').style.display = 'none';
+            document.getElementById('clusters-container').style.display = 'grid';
         }
     }
 
