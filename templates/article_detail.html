@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+
+{% block title %}Politerate — Article Analysis{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 1.5rem;">
+    <a href="/all-articles" style="font-size:0.875rem; color:var(--text-subtle); text-decoration:none;">&larr; All Articles</a>
+</div>
+
+<div id="loading" class="state">
+    <div class="spinner"></div>
+    <p>Loading article…</p>
+</div>
+
+<div id="error" class="state" style="display: none;">
+    <h2 style="margin-bottom: 0.75rem;">Article not found</h2>
+    <p id="error-message" style="margin-bottom: 1rem; color: var(--text-subtle);">This article could not be loaded.</p>
+    <a href="/all-articles" class="btn btn-primary">Back to Articles</a>
+</div>
+
+<article id="article-content" style="display: none;">
+    <div class="card" style="max-width: 860px; margin: 0 auto;">
+        <header style="margin-bottom: 1.25rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border);">
+            <h1 id="article-title" style="font-size: 1.35rem; font-weight: 700; line-height: 1.4; margin-bottom: 0.75rem;"></h1>
+            <div id="article-meta" class="article-card__meta" style="flex-wrap: wrap; gap: 0.5rem;"></div>
+        </header>
+
+        <div id="chunk-legend" class="chunk-legend" style="display: none;"></div>
+        <div id="article-body" class="chunk-body" style="font-size: 0.95rem; line-height: 1.75;"></div>
+    </div>
+</article>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function formatCredibilityScore(score) {
+        if (score === null || score === undefined) return null;
+        if (score >= 0.8) return { cls: 'cred-high', label: score.toFixed(1) };
+        if (score >= 0.5) return { cls: 'cred-medium', label: score.toFixed(1) };
+        return { cls: 'cred-low', label: score.toFixed(1) };
+    }
+
+    function formatLean(label) {
+        if (!label || label === 'unknown') return null;
+        const map = { left: 'lean-left', center: 'lean-center', right: 'lean-right' };
+        const cls = map[label.toLowerCase()] || null;
+        return cls ? { cls, text: label.charAt(0).toUpperCase() + label.slice(1) } : null;
+    }
+
+    function renderChunks(chunks) {
+        if (!chunks || chunks.length === 0) return '';
+        return chunks.map(chunk => {
+            const techniques = (chunk.techniques || []).map(t => t.label.replace(/_/g, ' ')).join(', ');
+            const emotion = chunk.emotion && chunk.emotion !== 'neutral' ? chunk.emotion : '';
+            const hasTechnique = techniques.length > 0;
+
+            let cls = '', tooltip = '';
+            if (hasTechnique) {
+                cls = 'chunk--flagged';
+                tooltip = techniques + (emotion ? ` · ${emotion}` : '');
+            } else if (chunk.subjective && emotion) {
+                cls = 'chunk--emotional';
+                tooltip = emotion;
+            }
+
+            const attrs = tooltip ? ` data-tip="${escapeHtml(tooltip)}"` : '';
+            return `<span class="chunk ${cls}"${attrs}>${escapeHtml(chunk.text)} </span>`;
+        }).join('');
+    }
+
+    async function loadArticle() {
+        const params = new URLSearchParams(window.location.search);
+        const url = params.get('url');
+
+        if (!url) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error-message').textContent = 'No article URL specified.';
+            document.getElementById('error').style.display = 'block';
+            return;
+        }
+
+        try {
+            const res = await fetch(`/api/article/analysis?url=${encodeURIComponent(url)}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+
+            document.title = `Politerate — ${data.title || 'Article'}`;
+            document.getElementById('article-title').textContent = data.title || 'Untitled';
+
+            const meta = document.getElementById('article-meta');
+
+            if (data.source) {
+                const src = document.createElement('span');
+                src.className = 'article-card__source';
+                src.textContent = data.source;
+                meta.appendChild(src);
+            }
+
+            const lean = formatLean(data.bias_label || data.credibility_label);
+            if (lean) {
+                const leanEl = document.createElement('span');
+                leanEl.className = `article-card__lean article-card__lean--${lean.cls}`;
+                leanEl.textContent = lean.text;
+                meta.appendChild(leanEl);
+            }
+
+            const cred = formatCredibilityScore(data.credibility_score);
+            if (cred) {
+                const credEl = document.createElement('span');
+                credEl.className = `article-card__cred ${cred.cls}`;
+                credEl.textContent = `Credibility ${cred.label}`;
+                meta.appendChild(credEl);
+            }
+
+            const extLink = document.createElement('a');
+            extLink.href = url;
+            extLink.target = '_blank';
+            extLink.rel = 'noopener noreferrer';
+            extLink.className = 'article-card__external';
+            extLink.title = 'Open original article';
+            extLink.style.marginLeft = '0';
+            extLink.innerHTML = '&#8599;&nbsp;Original';
+            meta.appendChild(extLink);
+
+            const body = document.getElementById('article-body');
+            const legend = document.getElementById('chunk-legend');
+
+            const hasChunks = data.chunks && data.chunks.length > 0 && data.analysis_status !== 'pending';
+
+            if (hasChunks) {
+                legend.style.display = 'flex';
+                legend.innerHTML = `
+                    <span class="chunk chunk--flagged">Persuasion technique</span>
+                    <span class="chunk chunk--emotional">Emotional tone</span>
+                    <span style="font-size:0.78rem;color:var(--text-subtle)">Hover for label</span>`;
+                body.innerHTML = renderChunks(data.chunks);
+            } else if (data.text) {
+                body.style.whiteSpace = 'pre-wrap';
+                body.textContent = data.text;
+            } else {
+                body.innerHTML = '<p style="color:var(--text-subtle);">No content available for this article.</p>';
+            }
+
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('article-content').style.display = 'block';
+
+        } catch (e) {
+            console.error(e);
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error-message').textContent = e.message;
+            document.getElementById('error').style.display = 'block';
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', loadArticle);
+</script>
+{% endblock %}
