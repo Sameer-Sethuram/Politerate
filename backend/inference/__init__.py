@@ -12,7 +12,6 @@ from the analyzer's per-article predictions.
 """
 
 import logging
-import os
 from pathlib import Path
 
 from ..config import (
@@ -64,31 +63,16 @@ def _resolve_weights_file() -> Path | None:
 
 
 def get_analyzer():
-    """Return a cached analyzer instance. Uses PoliterateAnalyzer when
-    weights are available (local or HF Hub), otherwise MockAnalyzer."""
+    """Return the cached PoliterateAnalyzer, loading it on first call.
+    Raises RuntimeError if weights cannot be found."""
     global _analyzer_instance
     if _analyzer_instance is not None:
         return _analyzer_instance
 
     weights = _resolve_weights_file()
-    if weights and weights.is_file():
-        try:
-            from .predictor import PoliterateAnalyzer
-            logger.info(f"Loading PoliterateAnalyzer from {weights}")
-            _analyzer_instance = PoliterateAnalyzer(
-                weights_path=str(weights),
-                device=DEVICE,
-            )
-            return _analyzer_instance
-        except Exception as e:
-            logger.warning(
-                "Failed to load real PoliterateAnalyzer (%s); falling back to MockAnalyzer",
-                e,
-            )
-
-    logger.info("No usable credibility weights found - using MockAnalyzer")
-    from .mock import MockAnalyzer
-    _analyzer_instance = MockAnalyzer()
+    from .predictor import PoliterateAnalyzer
+    logger.info("Loading PoliterateAnalyzer from %s", weights)
+    _analyzer_instance = PoliterateAnalyzer(weights_path=str(weights), device=DEVICE)
     return _analyzer_instance
 
 
