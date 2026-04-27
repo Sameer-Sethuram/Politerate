@@ -107,12 +107,17 @@ def get_all_articles():
     for row in rows:
         cid = row["cluster_id"] or ""
         in_summary = bool(cid) and not cid.startswith("singleton_")
+        lean = next(
+            (v for v in (row["credibility_label"], row["bias_label"])
+             if v and v != "unknown"),
+            None
+        )
         articles.append({
             "url": row["url"],
             "title": row["title"],
             "source": row["source"],
             "credibility_score": row["credibility_score"],
-            "lean": row["credibility_label"] or row["bias_label"],
+            "lean": lean,
             "analysis_status": row["analysis_status"],
             "in_summary": in_summary,
             "scraped_at": row["scraped_at"],

@@ -108,11 +108,16 @@
             const url = (cluster.urls && cluster.urls[i]) ? cluster.urls[i] : '#';
             const credData = (cluster.source_credibility && cluster.source_credibility[i]) || {};
             const rawScore = (credData.score !== null && credData.score !== undefined) ? credData.score : null;
-            if (rawScore === null) {
-                return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="source-badge"><span>${source}</span></a>`;
-            }
-            const cred = formatCredibilityScore(rawScore);
-            return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="source-badge"><span>${source}</span><span class="source-badge__score ${cred.class}">${cred.label}</span></a>`;
+            const lean = (credData.label && credData.label !== 'unknown') ? credData.label.toLowerCase() : null;
+
+            const scoreHtml = rawScore !== null
+                ? (() => { const c = formatCredibilityScore(rawScore); return `<span class="source-badge__score ${c.class}">${c.label}</span>`; })()
+                : '';
+            const leanHtml = lean
+                ? `<span class="article-card__lean article-card__lean--lean-${lean}">${lean.charAt(0).toUpperCase() + lean.slice(1)}</span>`
+                : '';
+
+            return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="source-badge">${leanHtml}<span>${source}</span>${scoreHtml}</a>`;
         }).join('');
 
         const termsHtml = (cluster.defined_terms && cluster.defined_terms.length > 0)

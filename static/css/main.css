@@ -722,6 +722,17 @@ main.is-narrow { max-width: var(--container-narrow); }
 }
 .article-card.is-expanded .article-card__chevron { transform: rotate(180deg); }
 
+.article-card__header--nav { cursor: default; }
+.article-card__title-link {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+  line-height: 1.4;
+  flex: 1;
+}
+.article-card__title-link:hover { color: var(--action-hover); text-decoration: underline; }
+
 .article-card__meta {
   display: flex;
   flex-wrap: wrap;

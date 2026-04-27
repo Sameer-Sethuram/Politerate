@@ -57,12 +57,13 @@ _EMOTION_HINTS = {
 _TECHNIQUE_HINTS = {
     "Loaded_Language": ["radical", "extremist", "regime", "scheme", "devastating"],
     "Appeal_to_fear_prejudice": ["danger", "threat", "could destroy"],
-    "Exaggeration_Minimization": ["unprecedented", "historic", "never before", "minor"],
-    "Name_Calling_Labeling": ["labeled", "called him a", "so-called"],
+    "Exaggeration_Minimization": ["unprecedented", "historic", "never before"],
+    "Name_Calling_Labeling": ["called him a", "so-called", "labeled a"],
     "Doubt": ["questionable", "supposedly", "alleged"],
-    "Appeal_to_Authority": ["experts say", "studies show", "according to"],
-    "Bandwagon": ["everyone knows", "nobody disputes", "most people"],
-    "Black_and_White_Fallacy": ["either ... or", "the only option", "no other choice"],
+    # "according to" is AP-style attribution, not a persuasion technique
+    "Appeal_to_Authority": ["experts say", "studies show", "scientists confirm"],
+    "Bandwagon": ["everyone knows", "nobody disputes", "most people agree"],
+    "Black_and_White_Fallacy": ["the only option", "no other choice", "either you"],
     "Flag_Waving": ["american values", "our nation", "patriot"],
     "Thought_terminating_Cliches": ["at the end of the day", "it is what it is"],
 }

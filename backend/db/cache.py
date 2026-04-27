@@ -347,18 +347,24 @@ def get_cluster(cluster_id: str) -> Optional[dict]:
     }
 
     cursor.execute("""
-        SELECT url, title, source, text, credibility_score, credibility_label
+        SELECT url, title, source, text, credibility_score, credibility_label, bias_label
         FROM articles WHERE cluster_id = ?
     """, (cluster_id,))
     articles = []
     for article_row in cursor.fetchall():
+        lean = next(
+            (v for v in (article_row["credibility_label"], article_row["bias_label"])
+             if v and v != "unknown"),
+            None
+        )
         articles.append({
             "url": article_row["url"],
             "title": article_row["title"],
             "source": article_row["source"],
             "text": article_row["text"],
             "credibility_score": article_row["credibility_score"],
-            "credibility_label": article_row["credibility_label"]
+            "credibility_label": article_row["credibility_label"],
+            "lean": lean,
         })
 
     conn.close()
