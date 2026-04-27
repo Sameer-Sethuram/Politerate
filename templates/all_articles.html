@@ -55,14 +55,15 @@
 
     function formatLean(label) {
         if (!label || label === 'unknown') return null;
-        const map = { LABEL_0: "left-leaning",
-            LABEL_1: "center",
-            LABEL_2: "right-leaning",
-            left: "left-leaning",
-            center: "center",
-            right: "right-leaning" };
+        const map = {
+            label_0: 'lean-left',   left:   'lean-left',
+            label_1: 'lean-center', center: 'lean-center',
+            label_2: 'lean-right',  right:  'lean-right',
+        };
         const cls = map[label.toLowerCase()] || null;
-        return cls ? { cls, text: label.charAt(0).toUpperCase() + label.slice(1) } : null;
+        if (!cls) return null;
+        const text = { 'lean-left': 'Left', 'lean-center': 'Center', 'lean-right': 'Right' };
+        return { cls, text: text[cls] };
     }
 
     function buildCard(a) {
