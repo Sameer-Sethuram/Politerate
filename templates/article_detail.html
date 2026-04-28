@@ -48,9 +48,15 @@
 
     function formatLean(label) {
         if (!label || label === 'unknown') return null;
-        const map = { left: 'lean-left', center: 'lean-center', right: 'lean-right' };
+        const map = {
+            label_0: 'lean-left',   left:   'lean-left',
+            label_1: 'lean-center', center: 'lean-center',
+            label_2: 'lean-right',  right:  'lean-right',
+        };
         const cls = map[label.toLowerCase()] || null;
-        return cls ? { cls, text: label.charAt(0).toUpperCase() + label.slice(1) } : null;
+        if (!cls) return null;
+        const text = { 'lean-left': 'Left', 'lean-center': 'Center', 'lean-right': 'Right' };
+        return { cls, text: text[cls] };
     }
 
     function renderChunks(chunks) {
@@ -72,6 +78,46 @@
             const attrs = tooltip ? ` data-tip="${escapeHtml(tooltip)}"` : '';
             return `<span class="chunk ${cls}"${attrs}>${escapeHtml(chunk.text)} </span>`;
         }).join('');
+    }
+
+    function setupTooltip(container) {
+        const tip = document.createElement('div');
+        Object.assign(tip.style, {
+            position: 'fixed',
+            background: '#1f2937',
+            color: '#f9fafb',
+            fontSize: '0.74rem',
+            lineHeight: '1.4',
+            padding: '4px 8px',
+            borderRadius: '4px',
+            pointerEvents: 'none',
+            opacity: '0',
+            transition: 'opacity 0.12s ease',
+            zIndex: '500',
+            maxWidth: '280px',
+            whiteSpace: 'normal',
+            wordBreak: 'break-word',
+        });
+        document.body.appendChild(tip);
+
+        container.addEventListener('mouseover', e => {
+            const el = e.target.closest('[data-tip]');
+            if (el) {
+                tip.textContent = el.getAttribute('data-tip');
+                tip.style.opacity = '1';
+            } else {
+                tip.style.opacity = '0';
+            }
+        });
+
+        container.addEventListener('mousemove', e => {
+            const x = Math.min(e.clientX + 12, window.innerWidth - 296);
+            const y = e.clientY - 36;
+            tip.style.left = x + 'px';
+            tip.style.top = y + 'px';
+        });
+
+        container.addEventListener('mouseleave', () => { tip.style.opacity = '0'; });
     }
 
     async function loadArticle() {
@@ -140,6 +186,7 @@
                     <span class="chunk chunk--emotional">Emotional tone</span>
                     <span style="font-size:0.78rem;color:var(--text-subtle)">Hover for label</span>`;
                 body.innerHTML = renderChunks(data.chunks);
+                setupTooltip(body);
             } else if (data.text) {
                 body.style.whiteSpace = 'pre-wrap';
                 body.textContent = data.text;

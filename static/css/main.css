@@ -805,29 +805,6 @@ main.is-narrow { max-width: var(--container-narrow); }
 .chunk--flagged   { background: #fef3c7; cursor: help; position: relative; }
 .chunk--emotional { background: #fef9e7; cursor: help; position: relative; }
 
-.chunk--flagged::after,
-.chunk--emotional::after {
-  content: attr(data-tip);
-  position: absolute;
-  bottom: calc(100% + 4px);
-  left: 50%;
-  transform: translateX(-50%);
-  background: #1f2937;
-  color: #f9fafb;
-  font-size: 0.74rem;
-  line-height: 1.4;
-  padding: 4px 8px;
-  border-radius: 4px;
-  white-space: nowrap;
-  max-width: 280px;
-  white-space: normal;
-  pointer-events: none;
-  opacity: 0;
-  z-index: 200;
-  transition: opacity 0.12s ease;
-}
-.chunk--flagged:hover::after,
-.chunk--emotional:hover::after { opacity: 1; }
 
 /* ==================================================================
  * Responsive
