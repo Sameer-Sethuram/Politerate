@@ -28,25 +28,36 @@ def save_articles(articles: list[dict]) -> int:
     conn = get_connection()
     cursor = conn.cursor()
     saved = 0
+    now = datetime.now().isoformat()
 
     for article in articles:
         credibility = article.get("credibility", {})
-        score = credibility.get("score", 1.0)
-        label = credibility.get("bias_label", "unknown")
+        analysis = article.get("_analysis") or {}
+        article_agg = analysis.get("article") or {}
+        has_analysis = bool(analysis)
 
         cursor.execute("""
-            INSERT OR REPLACE INTO articles 
-            (url, title, source, text, credibility_score, credibility_label, cluster_id, scraped_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO articles
+            (url, title, source, text, credibility_score, credibility_label, cluster_id, scraped_at,
+             analysis_json, article_json, bias_label, dominant_emotion, subjectivity_ratio,
+             analysis_status, analyzed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             article.get("url", ""),
             article.get("title", ""),
             article.get("source", "unknown"),
             article.get("text", ""),
-            score,
-            label,
+            credibility.get("score", 1.0),
+            credibility.get("bias_label", "unknown"),
             article.get("cluster_id", ""),
-            datetime.now().isoformat()
+            now,
+            json.dumps(analysis.get("chunks")) if has_analysis else None,
+            json.dumps(article_agg) if has_analysis else None,
+            article_agg.get("dominant_bias"),
+            article_agg.get("dominant_emotion"),
+            article_agg.get("subjectivity_ratio"),
+            "done" if has_analysis else "pending",
+            now if has_analysis else None,
         ))
         saved += 1
 
@@ -376,8 +387,13 @@ def get_all_articles() -> list[dict]:
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT url, title, source, text, cluster_id
+        SELECT url, title, source, text, cluster_id,
+               credibility_score, credibility_label, bias_label,
+               dominant_emotion, subjectivity_ratio,
+               analysis_status, analysis_json, scraped_at
         FROM articles
+        WHERE url IS NOT NULL AND url != ''
+        ORDER BY scraped_at DESC
     """)
     rows = cursor.fetchall()
     conn.close()
@@ -388,6 +404,14 @@ def get_all_articles() -> list[dict]:
             "source": r["source"],
             "text": r["text"],
             "cluster_id": r["cluster_id"],
+            "credibility_score": r["credibility_score"],
+            "credibility_label": r["credibility_label"],
+            "bias_label": r["bias_label"],
+            "dominant_emotion": r["dominant_emotion"],
+            "subjectivity_ratio": r["subjectivity_ratio"],
+            "analysis_status": r["analysis_status"],
+            "in_summary": bool(r["cluster_id"]) and not str(r["cluster_id"]).startswith("singleton_"),
+            "scraped_at": r["scraped_at"],
         }
         for r in rows
     ]
