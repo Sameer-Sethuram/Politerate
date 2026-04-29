@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% set active = "articles" %}
+
+{% block title %}Politerate — All Articles{% endblock %}
+
+{% block content %}
+<section class="hero" style="padding-bottom: 1.5rem;">
+    <h1 class="brief__title" style="font-size: 1.8rem;">All Articles</h1>
+    <p style="color: var(--text-subtle); font-size: 0.92rem; margin-top: 0.4rem;">
+        Every article scraped today — split by whether it was included in the Daily Brief.
+    </p>
+</section>
+
+<div id="loading" class="state">
+    <div class="spinner"></div>
+    <p>Loading articles…</p>
+</div>
+
+<div id="error" class="state" style="display: none;">
+    <h2 style="margin-bottom: 0.75rem;">Unable to load articles</h2>
+    <p id="error-message" style="margin-bottom: 1rem;">Something went wrong.</p>
+    <button class="btn btn-primary" onclick="loadArticles()">Try Again</button>
+</div>
+
+<div id="content" style="display: none;">
+    <section id="section-brief">
+        <h2 class="articles-section__heading">In Today's Brief</h2>
+        <div id="grid-brief" class="articles-grid"></div>
+        <p id="empty-brief" class="articles-section__empty" style="display:none;">No articles from the brief yet.</p>
+    </section>
+
+    <section id="section-other" style="margin-top: 2.5rem;">
+        <h2 class="articles-section__heading">Other Articles</h2>
+        <p class="articles-section__sub">Passed credibility but not clustered, or filtered out — not included in the summary.</p>
+        <div id="grid-other" class="articles-grid"></div>
+        <p id="empty-other" class="articles-section__empty" style="display:none;">No other articles found.</p>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function formatCredibilityScore(score) {
+        if (score === null || score === undefined) return null;
+        if (score >= 0.8) return { cls: 'cred-high', label: score.toFixed(1) };
+        if (score >= 0.5) return { cls: 'cred-medium', label: score.toFixed(1) };
+        return { cls: 'cred-low', label: score.toFixed(1) };
+    }
+
+    function formatLean(label) {
+        if (!label || label === 'unknown') return null;
+        const map = {
+            label_0: 'lean-left',   left:   'lean-left',
+            label_1: 'lean-center', center: 'lean-center',
+            label_2: 'lean-right',  right:  'lean-right',
+        };
+        const cls = map[label.toLowerCase()] || null;
+        if (!cls) return null;
+        const text = { 'lean-left': 'Left', 'lean-center': 'Center', 'lean-right': 'Right' };
+        return { cls, text: text[cls] };
+    }
+
+    function buildCard(a) {
+        const card = document.createElement('article');
+        card.className = 'article-card';
+
+        const cred = formatCredibilityScore(a.credibility_score);
+        const credHtml = cred
+            ? `<span class="article-card__cred ${cred.cls}">Credibility ${cred.label}</span>`
+            : '';
+
+        const lean = formatLean(a.lean);
+        const leanHtml = lean
+            ? `<span class="article-card__lean article-card__lean--${lean.cls}">${lean.text}</span>`
+            : '';
+
+        const detailHref = `/article?url=${encodeURIComponent(a.url)}`;
+
+        card.innerHTML = `
+            <div class="article-card__header article-card__header--nav">
+                <a class="article-card__title-link" href="${detailHref}">${escapeHtml(a.title || 'Untitled')}</a>
+                <a class="article-card__external" href="${a.url}" target="_blank" rel="noopener noreferrer" title="Open original article" onclick="event.stopPropagation()">&#8599;</a>
+            </div>
+            <div class="article-card__meta">
+                <span class="article-card__source">${escapeHtml(a.source || '')}</span>
+                ${leanHtml}
+                ${credHtml}
+            </div>
+        `;
+        return card;
+    }
+
+    async function loadArticles() {
+        document.getElementById('loading').style.display = 'block';
+        document.getElementById('error').style.display = 'none';
+        document.getElementById('content').style.display = 'none';
+
+        try {
+            const res = await fetch('/api/all-articles');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+
+            const inBrief = (data.articles || []).filter(a => a.in_summary);
+            const other   = (data.articles || []).filter(a => !a.in_summary);
+
+            const gridBrief = document.getElementById('grid-brief');
+            const gridOther = document.getElementById('grid-other');
+            gridBrief.innerHTML = '';
+            gridOther.innerHTML = '';
+
+            inBrief.forEach(a => gridBrief.appendChild(buildCard(a)));
+            other.forEach(a => gridOther.appendChild(buildCard(a)));
+
+            document.getElementById('empty-brief').style.display = inBrief.length === 0 ? 'block' : 'none';
+            document.getElementById('empty-other').style.display = other.length === 0 ? 'block' : 'none';
+
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+        } catch (e) {
+            console.error(e);
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error-message').textContent = e.message;
+            document.getElementById('error').style.display = 'block';
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', loadArticles);
+</script>
+{% endblock %}

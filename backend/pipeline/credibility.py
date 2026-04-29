@@ -32,9 +32,11 @@ class CredibilityChecker:
         logger.info(f"CredibilityChecker routing through analyzer ({version})")
         return lambda text: self._analyzer_impl(analyzer, text)
 
-    def _analyzer_impl(self, analyzer, text: str) -> dict:
-        """Derive a credibility dict from analyzer.predict_article() output.
-        score = 1 - subjectivity_ratio (more loaded/emotional = less credible)."""
+    def _analyzer_impl(self, analyzer, text: str) -> tuple[dict, dict]:
+        """Returns (credibility_dict, full_analyzer_result).
+
+        score = 1 - subjectivity_ratio (more loaded/emotional = less credible).
+        The full result carries chunk-level predictions for downstream storage."""
         result = analyzer.predict_article(text)
         article = result.get("article") or {}
         subj = float(article.get("subjectivity_ratio") or 0.0)
@@ -42,18 +44,22 @@ class CredibilityChecker:
 
         technique_counts = article.get("technique_counts") or {}
         top_techniques = sorted(technique_counts.items(), key=lambda x: -x[1])[:3]
-        reasons = [label.replace("_", " ") for label, _ in top_techniques] or ["no persuasion techniques detected"]
+        reasons = (
+            [label.replace("_", " ") for label, _ in top_techniques]
+            or ["no persuasion techniques detected"]
+        )
 
         chunks = result.get("chunks") or []
         confidence = min(1.0, len(chunks) / 10.0) if chunks else 0.0
 
-        return {
+        credibility = {
             "score": score,
             "flag": score < self.threshold,
             "reasons": reasons,
             "bias_label": article.get("dominant_bias") or "unknown",
             "confidence": round(confidence, 3),
         }
+        return credibility, result
 
     def check(self, article: dict) -> dict:
         text = article.get("text", "")
@@ -72,10 +78,10 @@ class CredibilityChecker:
             }
 
         try:
-            result = self._impl(text)
-            result["url"] = url
-            result["passed"] = result["score"] >= self.threshold
-            return result
+            credibility, _ = self._impl(text)
+            credibility["url"] = url
+            credibility["passed"] = credibility["score"] >= self.threshold
+            return credibility
         except Exception as e:
             logger.error(f"Credibility check failed for {url}: {type(e).__name__}: {str(e)[:50]}")
             return {
@@ -92,11 +98,44 @@ class CredibilityChecker:
         passed, failed = [], []
         logger.info(f"Checking credibility of {len(articles)} articles")
         for article in articles:
-            result = self.check(article)
-            article["credibility"] = result
-            (passed if result["passed"] else failed).append(article)
-            if not result["passed"]:
-                logger.info(f"Filtered {article.get('url', 'unknown')}: {result['reasons']}")
+            text = article.get("text", "")
+            url = article.get("url", "unknown")
+
+            if not text:
+                article["credibility"] = {
+                    "score": 0.0,
+                    "flag": True,
+                    "reasons": ["empty text"],
+                    "bias_label": "unknown",
+                    "confidence": 0.0,
+                    "url": url,
+                    "passed": False,
+                }
+                failed.append(article)
+                continue
+
+            try:
+                credibility, full_result = self._impl(text)
+                credibility["url"] = url
+                credibility["passed"] = credibility["score"] >= self.threshold
+                article["credibility"] = credibility
+                article["_analysis"] = full_result
+            except Exception as e:
+                logger.error(f"Credibility check failed for {url}: {type(e).__name__}: {str(e)[:50]}")
+                article["credibility"] = {
+                    "score": 0.0,
+                    "flag": True,
+                    "reasons": [f"check failed: {str(e)[:30]}"],
+                    "bias_label": "unknown",
+                    "confidence": 0.0,
+                    "url": url,
+                    "passed": False,
+                }
+
+            (passed if article["credibility"]["passed"] else failed).append(article)
+            if not article["credibility"]["passed"]:
+                logger.info(f"Filtered {url}: {article['credibility']['reasons']}")
+
         logger.info(f"Credibility filter: {len(passed)} passed, {len(failed)} failed")
         return passed, failed
 

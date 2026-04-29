@@ -95,7 +95,8 @@ CREATE TABLE IF NOT EXISTS scraped_articles_archive (
     text TEXT,
     authors TEXT,
     publish_date TEXT,
-    scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    analysis_json 
 );
 
 CREATE INDEX IF NOT EXISTS idx_archive_scraped_at ON scraped_articles_archive(scraped_at);

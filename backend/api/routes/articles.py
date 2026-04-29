@@ -1,10 +1,12 @@
 """News / cluster JSON routes."""
 
+import json
 import logging
 
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 
 from backend.db.cache import get_cached_summaries, get_cluster, is_stale
+from backend.db.connection import get_connection
 
 articles_bp = Blueprint("articles", __name__)
 logger = logging.getLogger(__name__)
@@ -40,6 +42,88 @@ def get_summary(cluster_id):
     if not cluster:
         return jsonify({"error": "Cluster not found"}), 404
     return jsonify(cluster)
+
+
+@articles_bp.route("/api/article/analysis")
+def api_article_analysis():
+    url = request.args.get("url", "").strip()
+    if not url:
+        return jsonify({"error": "url parameter required"}), 400
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT url, title, source, text, credibility_score, credibility_label,
+               analysis_json, article_json, bias_label, dominant_emotion,
+               subjectivity_ratio, analysis_status, analyzed_at
+        FROM articles WHERE url = ?
+    """, (url,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({"error": "Article not found"}), 404
+
+    def _parse(val):
+        if not val:
+            return None
+        try:
+            return json.loads(val)
+        except (ValueError, TypeError):
+            return None
+
+    return jsonify({
+        "url": row["url"],
+        "title": row["title"],
+        "source": row["source"],
+        "credibility_score": row["credibility_score"],
+        "credibility_label": row["credibility_label"],
+        "bias_label": row["bias_label"],
+        "dominant_emotion": row["dominant_emotion"],
+        "subjectivity_ratio": row["subjectivity_ratio"],
+        "analysis_status": row["analysis_status"],
+        "analyzed_at": row["analyzed_at"],
+        "chunks": _parse(row["analysis_json"]),
+        "article_summary": _parse(row["article_json"]),
+        "text": row["text"],
+    })
+
+
+@articles_bp.route("/api/all-articles")
+def get_all_articles():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT url, title, source, credibility_score, credibility_label,
+               bias_label, analysis_status, cluster_id, scraped_at
+        FROM articles
+        WHERE url IS NOT NULL AND url != ''
+        ORDER BY scraped_at DESC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+
+    articles = []
+    for row in rows:
+        cid = row["cluster_id"] or ""
+        in_summary = bool(cid) and not cid.startswith("singleton_")
+        lean = next(
+            (v for v in (row["credibility_label"], row["bias_label"])
+             if v and v != "unknown"),
+            None
+        )
+        articles.append({
+            "url": row["url"],
+            "title": row["title"],
+            "source": row["source"],
+            "credibility_score": row["credibility_score"],
+            "lean": lean,
+            "analysis_status": row["analysis_status"],
+            "in_summary": in_summary,
+            "scraped_at": row["scraped_at"],
+        })
+
+    return jsonify({"articles": articles, "total": len(articles)})
 
 
 @articles_bp.route("/api/cluster/<cluster_id>/analysis")

@@ -32,6 +32,16 @@ def analyzer():
     return render_template("analyzer.html")
 
 
+@pages_bp.route("/all-articles")
+def all_articles():
+    return render_template("all_articles.html")
+
+
+@pages_bp.route("/article")
+def article_detail():
+    return render_template("article_detail.html")
+
+
 @pages_bp.route("/cluster/<cluster_id>")
 def cluster_detail(cluster_id):
     cluster = get_cluster(cluster_id)

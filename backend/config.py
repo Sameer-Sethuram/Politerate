@@ -25,9 +25,9 @@ DB_PATH = PROJECT_ROOT / "politerate.db"
 # trained it). Falls back to HF Hub when missing.
 BART_LOCAL_DIR = PROJECT_ROOT / "fine_tuned_bart_news"
 
-# DeBERTa analyzer weights directory. The real analyzer.pt (~740MB) is
-# git-ignored; downloaded from HF Hub on first use.
-INFERENCE_WEIGHTS_DIR = PROJECT_ROOT / "backend" / "inference" / "weights"
+# DeBERTa analyzer weights. Committed at backend/models/analyzer.pt;
+# HF Hub download falls back to the same directory.
+INFERENCE_WEIGHTS_DIR = PROJECT_ROOT / "backend" / "models"
 DEFAULT_ANALYZER_WEIGHTS = INFERENCE_WEIGHTS_DIR / "analyzer.pt"
 
 # ---------------------------------------------------------------------------

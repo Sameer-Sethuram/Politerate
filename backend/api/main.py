@@ -22,7 +22,6 @@ from backend.config import (
 )
 from backend.db.cache import is_stale
 from backend.db.connection import init_db
-
 logging.basicConfig(
     level=logging.INFO,
     format="[%(levelname)s] %(message)s"
@@ -84,7 +83,7 @@ def create_app() -> Flask:
 # scheduled pipeline update).
 # ---------------------------------------------------------------------------
 def load_model():
-    global _model, _tokenizer
+    global _model
     try:
         from transformers import BartForConditionalGeneration, BartTokenizer
         import torch
@@ -99,7 +98,16 @@ def load_model():
     except Exception as e:
         logger.error(f"Failed to load model: {e}")
 
+def load_analyzer():
+    from backend.inference import get_analyzer
+    try:
+        analyzer = get_analyzer()
+        logger.info("Analyzer ready: %s", type(analyzer).__name__)
+    except Exception as e:
+        logger.error("Failed to load analyzer: %s", e)
+        raise
 
+    
 def generate_summary(text: str, max_length: int = 150, min_length: int = 50) -> str:
     if not _model:
         return "[Summary unavailable - model not loaded]"
@@ -186,7 +194,9 @@ def start_scheduler():
 def initialize():
     init_db()
     load_model()
+    load_analyzer()
 
+    
     if is_stale():
         logger.info("Cache is stale on startup - running initial pipeline...")
         run_pipeline_update()

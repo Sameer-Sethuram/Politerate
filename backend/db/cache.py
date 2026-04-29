@@ -28,25 +28,36 @@ def save_articles(articles: list[dict]) -> int:
     conn = get_connection()
     cursor = conn.cursor()
     saved = 0
+    now = datetime.now().isoformat()
 
     for article in articles:
         credibility = article.get("credibility", {})
-        score = credibility.get("score", 1.0)
-        label = credibility.get("bias_label", "unknown")
+        analysis = article.get("_analysis") or {}
+        article_agg = analysis.get("article") or {}
+        has_analysis = bool(analysis)
 
         cursor.execute("""
-            INSERT OR REPLACE INTO articles 
-            (url, title, source, text, credibility_score, credibility_label, cluster_id, scraped_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO articles
+            (url, title, source, text, credibility_score, credibility_label, cluster_id, scraped_at,
+             analysis_json, article_json, bias_label, dominant_emotion, subjectivity_ratio,
+             analysis_status, analyzed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             article.get("url", ""),
             article.get("title", ""),
             article.get("source", "unknown"),
             article.get("text", ""),
-            score,
-            label,
+            credibility.get("score", 1.0),
+            credibility.get("bias_label", "unknown"),
             article.get("cluster_id", ""),
-            datetime.now().isoformat()
+            now,
+            json.dumps(analysis.get("chunks")) if has_analysis else None,
+            json.dumps(article_agg) if has_analysis else None,
+            article_agg.get("dominant_bias"),
+            article_agg.get("dominant_emotion"),
+            article_agg.get("subjectivity_ratio"),
+            "done" if has_analysis else "pending",
+            now if has_analysis else None,
         ))
         saved += 1
 
@@ -65,6 +76,59 @@ def _cluster_is_good(cluster: dict) -> bool:
     if summary.startswith("["):
         return False
     return True
+
+def save_unclustered_articles(articles: list[dict]) -> int:
+    """Persist articles that didn't make it into a named cluster.
+
+    Uses INSERT OR IGNORE so a previously-clustered article is never
+    demoted (its cluster_id stays intact if it already exists in the table).
+    Each article may carry a 'cluster_id' key set by the caller (e.g.
+    'singleton_<hash>' for singletons, or absent for credibility failures).
+    """
+    if not articles:
+        return 0
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    saved = 0
+    now = datetime.now().isoformat()
+
+    for article in articles:
+        analysis = article.get("_analysis") or {}
+        article_agg = analysis.get("article") or {}
+        has_analysis = bool(analysis)
+        try:
+            cursor.execute("""
+                INSERT OR IGNORE INTO articles
+                (url, title, source, text, credibility_score, credibility_label, cluster_id, scraped_at,
+                 analysis_json, article_json, bias_label, dominant_emotion, subjectivity_ratio,
+                 analysis_status, analyzed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                article.get("url", ""),
+                article.get("title", ""),
+                article.get("source", "unknown"),
+                article.get("text", ""),
+                article.get("credibility", {}).get("score"),
+                article.get("credibility", {}).get("bias_label", "unknown"),
+                article.get("cluster_id"),
+                now,
+                json.dumps(analysis.get("chunks")) if has_analysis else None,
+                json.dumps(article_agg) if has_analysis else None,
+                article_agg.get("dominant_bias"),
+                article_agg.get("dominant_emotion"),
+                article_agg.get("subjectivity_ratio"),
+                "done" if has_analysis else "pending",
+                now if has_analysis else None,
+            ))
+            saved += 1
+        except Exception as e:
+            logger.warning(f"Failed to save unclustered article {article.get('url')}: {e}")
+
+    conn.commit()
+    conn.close()
+    logger.info(f"Saved {saved} unclustered articles")
+    return saved
 
 
 def save_clusters(clusters: list[dict]) -> int:
@@ -94,7 +158,6 @@ def save_clusters(clusters: list[dict]) -> int:
     saved = 0
 
     cursor.execute("DELETE FROM clusters")
-    cursor.execute("DELETE FROM articles")
 
     for cluster in clusters:
         cursor.execute("""
@@ -114,10 +177,15 @@ def save_clusters(clusters: list[dict]) -> int:
         ))
 
         for article in cluster.get("articles", []):
+            analysis = article.get("_analysis") or {}
+            article_agg = analysis.get("article") or {}
+            has_analysis = bool(analysis)
             cursor.execute("""
-                INSERT OR REPLACE INTO articles 
-                (url, title, source, text, credibility_score, credibility_label, cluster_id, scraped_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO articles
+                (url, title, source, text, credibility_score, credibility_label, cluster_id, scraped_at,
+                 analysis_json, article_json, bias_label, dominant_emotion, subjectivity_ratio,
+                 analysis_status, analyzed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 article.get("url", ""),
                 article.get("title", ""),
@@ -126,7 +194,14 @@ def save_clusters(clusters: list[dict]) -> int:
                 article.get("credibility", {}).get("score", 1.0),
                 article.get("credibility", {}).get("bias_label", "unknown"),
                 str(cluster.get("cluster_id", "")),
-                datetime.now().isoformat()
+                datetime.now().isoformat(),
+                json.dumps(analysis.get("chunks")) if has_analysis else None,
+                json.dumps(article_agg) if has_analysis else None,
+                article_agg.get("dominant_bias"),
+                article_agg.get("dominant_emotion"),
+                article_agg.get("subjectivity_ratio"),
+                "done" if has_analysis else "pending",
+                datetime.now().isoformat() if has_analysis else None,
             ))
         saved += 1
 
@@ -283,18 +358,24 @@ def get_cluster(cluster_id: str) -> Optional[dict]:
     }
 
     cursor.execute("""
-        SELECT url, title, source, text, credibility_score, credibility_label
+        SELECT url, title, source, text, credibility_score, credibility_label, bias_label
         FROM articles WHERE cluster_id = ?
     """, (cluster_id,))
     articles = []
     for article_row in cursor.fetchall():
+        lean = next(
+            (v for v in (article_row["credibility_label"], article_row["bias_label"])
+             if v and v != "unknown"),
+            None
+        )
         articles.append({
             "url": article_row["url"],
             "title": article_row["title"],
             "source": article_row["source"],
             "text": article_row["text"],
             "credibility_score": article_row["credibility_score"],
-            "credibility_label": article_row["credibility_label"]
+            "credibility_label": article_row["credibility_label"],
+            "lean": lean,
         })
 
     conn.close()
@@ -306,8 +387,13 @@ def get_all_articles() -> list[dict]:
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT url, title, source, text, cluster_id
+        SELECT url, title, source, text, cluster_id,
+               credibility_score, credibility_label, bias_label,
+               dominant_emotion, subjectivity_ratio,
+               analysis_status, analysis_json, scraped_at
         FROM articles
+        WHERE url IS NOT NULL AND url != ''
+        ORDER BY scraped_at DESC
     """)
     rows = cursor.fetchall()
     conn.close()
@@ -318,6 +404,14 @@ def get_all_articles() -> list[dict]:
             "source": r["source"],
             "text": r["text"],
             "cluster_id": r["cluster_id"],
+            "credibility_score": r["credibility_score"],
+            "credibility_label": r["credibility_label"],
+            "bias_label": r["bias_label"],
+            "dominant_emotion": r["dominant_emotion"],
+            "subjectivity_ratio": r["subjectivity_ratio"],
+            "analysis_status": r["analysis_status"],
+            "in_summary": bool(r["cluster_id"]) and not str(r["cluster_id"]).startswith("singleton_"),
+            "scraped_at": r["scraped_at"],
         }
         for r in rows
     ]

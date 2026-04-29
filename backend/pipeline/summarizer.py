@@ -23,7 +23,7 @@ from backend.pipeline.preprocessor import preprocess_batch
 from backend.pipeline.clustering import cluster_articles, ArticleClusterer
 from backend.pipeline.credibility import filter_by_credibility
 from backend.pipeline.highlighter import TermHighlighter
-
+from backend.db.cache import save_unclustered_articles
 logging.basicConfig(
     level=logging.INFO,
     format="[%(levelname)s] %(message)s"
@@ -574,11 +574,26 @@ class PoliteratePipeline:
 
         results = self.process_clusters(clusters)
 
+        # Persist every article that didn't make it into a named cluster so
+        # the articles table holds the full picture, not just clustered ones.
+        from backend.db.cache import save_unclustered_articles
+
+        singleton_articles = []
+        for cluster_id, arts in clusters.items():
+            if str(cluster_id).startswith("singleton_"):
+                for art in arts:
+                    art["cluster_id"] = str(cluster_id)
+                singleton_articles.extend(arts)
+
+        save_unclustered_articles(singleton_articles)
+        save_unclustered_articles(failed)
+
         stats = {
             "total_scraped": len(flat_articles),
             "total_processed": len(processed),
             "passed_credibility": len(passed),
             "filtered_credibility": len(failed),
+            "singleton_articles": len(singleton_articles),
             "total_clusters": len(clusters),
             "clusters_with_summaries": len(results)
         }
@@ -627,6 +642,7 @@ if __name__ == "__main__":
     clusters = pipeline.cluster(test_articles)
     passed, failed = pipeline.filter_credibility(test_articles)
 
+    
     print(f"Clusters: {len(clusters)}")
     print(f"Credibility: {len(passed)} passed, {len(failed)} filtered")
 
