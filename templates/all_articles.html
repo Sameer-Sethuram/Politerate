@@ -24,13 +24,19 @@
 
 <div id="content" style="display: none;">
     <section id="section-brief">
-        <h2 class="articles-section__heading">In Today's Brief</h2>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
+            <h2 class="articles-section__heading" style="margin-bottom:0;">In Today's Brief</h2>
+            <button id="toggle-brief" class="section-toggle" style="display:none;" onclick="toggleSection('brief')"></button>
+        </div>
         <div id="grid-brief" class="articles-grid"></div>
         <p id="empty-brief" class="articles-section__empty" style="display:none;">No articles from the brief yet.</p>
     </section>
 
     <section id="section-other" style="margin-top: 2.5rem;">
-        <h2 class="articles-section__heading">Other Articles</h2>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
+            <h2 class="articles-section__heading" style="margin-bottom:0;">Other Articles</h2>
+            <button id="toggle-other" class="section-toggle" style="display:none;" onclick="toggleSection('other')"></button>
+        </div>
         <p class="articles-section__sub">Passed credibility but not clustered, or filtered out — not included in the summary.</p>
         <div id="grid-other" class="articles-grid"></div>
         <p id="empty-other" class="articles-section__empty" style="display:none;">No other articles found.</p>
@@ -39,6 +45,21 @@
 {% endblock %}
 
 {% block scripts %}
+<style>
+    .section-toggle {
+        font-size: 0.8rem;
+        color: var(--text-subtle);
+        background: transparent;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 0.25rem 0.75rem;
+        cursor: pointer;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+    .section-toggle:hover { color: var(--text); border-color: var(--text-subtle); }
+    .articles-grid { transition: max-height 0.3s ease; overflow: hidden; }
+</style>
 <script>
     function escapeHtml(str) {
         return String(str)
@@ -122,11 +143,62 @@
 
             document.getElementById('loading').style.display = 'none';
             document.getElementById('content').style.display = 'block';
+            requestAnimationFrame(() => {
+                initSection('brief', inBrief.length);
+                initSection('other', other.length);
+            });
         } catch (e) {
             console.error(e);
             document.getElementById('loading').style.display = 'none';
             document.getElementById('error-message').textContent = e.message;
             document.getElementById('error').style.display = 'block';
+        }
+    }
+
+    const _sections = {};
+
+    function initSection(id, total) {
+        const grid = document.getElementById('grid-' + id);
+        const toggle = document.getElementById('toggle-' + id);
+        const cards = [...grid.querySelectorAll('.article-card')];
+        if (cards.length === 0) return;
+
+        const gridRect = grid.getBoundingClientRect();
+        const firstTop = cards[0].getBoundingClientRect().top;
+        const gap = parseFloat(getComputedStyle(grid).gap) || 16;
+
+        let firstRowBottom = 0;
+        let firstRowCount = 0;
+        for (const card of cards) {
+            const rect = card.getBoundingClientRect();
+            if (firstRowBottom > 0 && rect.top > firstTop + 5) break;
+            firstRowBottom = Math.max(firstRowBottom, rect.bottom);
+            firstRowCount++;
+        }
+
+        if (firstRowCount >= cards.length) return;
+
+        const oneRowHeight = firstRowBottom - gridRect.top + gap;
+        grid.style.maxHeight = oneRowHeight + 'px';
+
+        _sections[id] = { collapsed: true, oneRowHeight, total };
+        toggle.textContent = `Show all (${total})`;
+        toggle.style.display = 'inline-block';
+    }
+
+    function toggleSection(id) {
+        const grid = document.getElementById('grid-' + id);
+        const toggle = document.getElementById('toggle-' + id);
+        const s = _sections[id];
+        if (!s) return;
+
+        s.collapsed = !s.collapsed;
+        if (s.collapsed) {
+            grid.style.maxHeight = s.oneRowHeight + 'px';
+            toggle.textContent = `Show all (${s.total})`;
+        } else {
+            grid.style.maxHeight = grid.scrollHeight + 'px';
+            toggle.textContent = 'Show less';
         }
     }
 
