@@ -140,7 +140,14 @@ def run_pipeline_update() -> bool:
     logger.info("Starting scheduled pipeline update...")
     try:
         pipeline = PoliteratePipeline(model_path=BART_MODEL_PATH)
-        pipeline.load_model()
+        # Reuse the already-loaded global model instead of loading a second copy.
+        # Calling pipeline.load_model() while _model is in memory doubles RAM usage
+        # and OOMs the server on small droplets.
+        if _model is not None:
+            pipeline._model = _model
+            pipeline._tokenizer = _tokenizer
+        else:
+            pipeline.load_model()
         results = pipeline.run()
 
         save_clusters(results.get("clusters", []))
@@ -195,10 +202,8 @@ def initialize():
     init_db()
     load_model()
     load_analyzer()
-
-    
-    if is_stale():
-        logger.info("Cache is stale on startup - running initial pipeline...")
-        run_pipeline_update()
-
     start_scheduler()
+
+    if is_stale():
+        logger.info("Cache is stale on startup - queuing immediate pipeline run...")
+        scheduler.get_job("pipeline_refresh").modify(next_run_time=__import__("datetime").datetime.now())
