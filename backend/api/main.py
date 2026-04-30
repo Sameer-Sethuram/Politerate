@@ -83,7 +83,7 @@ def create_app() -> Flask:
 # scheduled pipeline update).
 # ---------------------------------------------------------------------------
 def load_model():
-    global _model
+    global _model, _tokenizer
     try:
         from transformers import BartForConditionalGeneration, BartTokenizer
         import torch
@@ -199,6 +199,10 @@ def start_scheduler():
 
 
 def initialize():
+    from datetime import datetime
+    import importlib
+    importlib.import_module("backend.pipeline.summarizer")
+
     init_db()
     load_model()
     load_analyzer()
@@ -206,4 +210,4 @@ def initialize():
 
     if is_stale():
         logger.info("Cache is stale on startup - queuing immediate pipeline run...")
-        scheduler.get_job("pipeline_refresh").modify(next_run_time=__import__("datetime").datetime.now())
+        scheduler.get_job("pipeline_refresh").modify(next_run_time=datetime.now())
