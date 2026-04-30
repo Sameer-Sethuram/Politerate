@@ -83,7 +83,7 @@ def create_app() -> Flask:
 # scheduled pipeline update).
 # ---------------------------------------------------------------------------
 def load_model():
-    global _model, _tokenizer
+    global _model, _tokenizer  # noqa: PLW0603
     try:
         from transformers import BartForConditionalGeneration, BartTokenizer
         import torch
