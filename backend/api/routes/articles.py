@@ -14,19 +14,12 @@ logger = logging.getLogger(__name__)
 
 @articles_bp.route("/api/summaries")
 def get_summaries():
-    from backend.api.main import run_pipeline_update
-    if is_stale():
-        run_pipeline_update()
     return jsonify(get_cached_summaries())
 
 
 @articles_bp.route("/api/daily-summary")
 def get_daily_summary():
-    from backend.api.main import run_pipeline_update
     from backend.pipeline.summarizer import PoliteratePipeline
-
-    if is_stale():
-        run_pipeline_update()
 
     cached = get_cached_summaries()
     clusters = cached.get("clusters", [])
