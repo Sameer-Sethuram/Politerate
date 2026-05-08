@@ -9,6 +9,7 @@ Connection setup + schema lives in `backend/db/connection.py`. Re-exports
 older imports.
 """
 
+import re
 import sqlite3
 import json
 import logging
@@ -19,6 +20,95 @@ from backend.config import CACHE_MAX_AGE_HOURS
 from backend.db.connection import get_connection, init_db, get_db_path
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# URL -> source repair
+#
+# Legacy clusters (pre-fix) have scrambled source/url pairings because
+# clustering.py used to do `list(set(sources))`, which drops duplicates AND
+# reorders. URLs were never reordered, so they're the only field we can
+# trust. These helpers re-derive the source label from the URL hostname so
+# every cluster card renders the correct source for each link.
+# ---------------------------------------------------------------------------
+_SOURCE_PATTERNS: list[tuple[re.Pattern, str]] = [
+    # NYPost has two RSS feeds split by URL section. Politics feed pulls from
+    # /politics/ and /business/; everything else falls under US News.
+    (re.compile(r"nypost\.com/.+/(politics|business)/", re.IGNORECASE), "NYPost - Politics"),
+    (re.compile(r"nypost\.com",                          re.IGNORECASE), "NYPost - US News"),
+    (re.compile(r"foxnews\.com",                         re.IGNORECASE), "Fox"),
+    (re.compile(r"nbcnews\.com",                         re.IGNORECASE), "NBC"),
+    (re.compile(r"cbsnews\.com",                         re.IGNORECASE), "CBS"),
+    (re.compile(r"abcnews\.(?:com|go\.com)",             re.IGNORECASE), "ABC"),
+    (re.compile(r"theguardian\.com",                     re.IGNORECASE), "Guardian"),
+    (re.compile(r"apnews\.com",                          re.IGNORECASE), "AP News"),
+    # Expanded sources (2026-05-08)
+    (re.compile(r"cnn\.com",                             re.IGNORECASE), "CNN Politics"),
+    (re.compile(r"thehill\.com",                         re.IGNORECASE), "The Hill"),
+    (re.compile(r"pbs\.org",                             re.IGNORECASE), "PBS NewsHour"),
+    (re.compile(r"bbc\.(?:com|co\.uk)",                  re.IGNORECASE), "BBC US Politics"),
+    (re.compile(r"npr\.org",                             re.IGNORECASE), "NPR Politics"),
+    (re.compile(r"politico\.com",                        re.IGNORECASE), "Politico"),
+    (re.compile(r"washingtonexaminer\.com",              re.IGNORECASE), "Washington Examiner"),
+]
+
+
+def _source_from_url(url: str) -> str:
+    if not url:
+        return "Unknown"
+    for pattern, src in _SOURCE_PATTERNS:
+        if pattern.search(url):
+            return src
+    return "Unknown"
+
+
+def _source_matches_url(source: str, url: str) -> bool:
+    """True if the stored source label is plausibly correct for this URL."""
+    if not source or source == "unknown":
+        return False
+    derived = _source_from_url(url)
+    if derived == "Unknown":
+        # Hostname unrecognized — give the stored value the benefit of doubt.
+        return True
+    if "nypost.com" in (url or "").lower():
+        # Both NYPost feeds are valid for any nypost URL; only fail if the
+        # stored label isn't a NYPost variant at all.
+        return source.startswith("NYPost")
+    return source == derived
+
+
+def _repair_cluster_source_pairings(cluster: dict) -> dict:
+    """Return a cluster whose sources/urls/titles are guaranteed parallel.
+
+    Detects two failure modes from legacy data:
+      1. Length mismatch (e.g. set() collapsed duplicates). Rebuild sources
+         from URL hostnames; pad/truncate titles.
+      2. Length matches but stored sources don't agree with URL hostnames
+         (set() reordered all-unique sources). Override sources with values
+         derived from URLs.
+    """
+    sources = list(cluster.get("sources") or [])
+    urls = list(cluster.get("urls") or [])
+    titles = list(cluster.get("titles") or [])
+
+    if not urls:
+        return cluster
+
+    needs_rebuild = (
+        len(sources) != len(urls)
+        or any(not _source_matches_url(s, u) for s, u in zip(sources, urls))
+    )
+
+    if not needs_rebuild:
+        return cluster
+
+    new_sources = [_source_from_url(u) for u in urls]
+    if len(titles) < len(urls):
+        titles = titles + ["Untitled"] * (len(urls) - len(titles))
+    else:
+        titles = titles[: len(urls)]
+
+    return {**cluster, "sources": new_sources, "titles": titles}
 
 
 def save_articles(articles: list[dict]) -> int:
@@ -277,7 +367,7 @@ def get_cached_summaries() -> dict:
     for row in rows:
         urls = json.loads(row["urls"]) if row["urls"] else []
         source_credibility = [cred_by_url.get(u, {"score": None, "label": "unknown"}) for u in urls]
-        clusters.append({
+        cluster = {
             "cluster_id": row["id"],
             "summary": row["summary"],
             "highlighted_summary": row["highlighted_summary"],
@@ -288,7 +378,11 @@ def get_cached_summaries() -> dict:
             "source_credibility": source_credibility,
             "article_count": row["article_count"],
             "updated_at": row["updated_at"]
-        })
+        }
+        # Defensive repair: if pre-fix data is still in the live table, fix
+        # the source/url pairing on the way out instead of trusting the JSON
+        # blob. Idempotent for correctly-stored data.
+        clusters.append(_repair_cluster_source_pairings(cluster))
 
     cursor.execute("SELECT COUNT(*) as count FROM articles")
     article_count = cursor.fetchone()["count"]
@@ -313,9 +407,52 @@ def get_cached_summaries() -> dict:
     }
 
 
+def _has_real_summary(cluster: dict) -> bool:
+    """True iff the cluster carries a real BART summary (not [Summary
+    unavailable...] / [No significant news...] / empty)."""
+    summary = (cluster.get("summary") or "").strip()
+    return bool(summary) and not summary.startswith("[")
+
+
+def _sanitize_snapshot_clusters(clusters: list[dict]) -> list[dict]:
+    """Repair source/url pairings and drop unusable clusters from a snapshot.
+
+    Two-pass cleanup:
+      1. Drop clusters whose summary is a placeholder ([Summary unavailable...]).
+         These render as empty cards on the cluster detail page and add no value.
+      2. For every surviving cluster, repair source/url/title pairings via
+         `_repair_cluster_source_pairings` so the frontend renders correct
+         links — sources become URL-derived when stored data is suspect.
+    """
+    cleaned: list[dict] = []
+    dropped_placeholder = 0
+    repaired = 0
+    for c in clusters:
+        if not _has_real_summary(c):
+            dropped_placeholder += 1
+            continue
+        original_sources = list(c.get("sources") or [])
+        repaired_cluster = _repair_cluster_source_pairings(c)
+        if repaired_cluster.get("sources") != original_sources:
+            repaired += 1
+        cleaned.append(repaired_cluster)
+    if dropped_placeholder:
+        logger.warning(
+            f"Dropped {dropped_placeholder} placeholder-summary cluster(s) "
+            f"from snapshot (would have rendered as '[Summary unavailable]')"
+        )
+    if repaired:
+        logger.warning(
+            f"Repaired {repaired} cluster(s) from snapshot — source/url "
+            f"pairing was scrambled (likely from pre-fix `list(set(sources))`)"
+        )
+    return cleaned
+
+
 def _fallback_to_latest_snapshot() -> Optional[dict]:
     """Return the newest daily_snapshot's cluster payload, or None if there
-    are no snapshots yet. Output matches get_cached_summaries()'s shape."""
+    are no snapshots yet. Sanitizes any clusters whose source/url/title
+    arrays are out of sync (legacy data from before the dedup fix)."""
     snapshots = list_snapshot_dates()
     if not snapshots:
         return None
@@ -324,7 +461,7 @@ def _fallback_to_latest_snapshot() -> Optional[dict]:
     if not snap or not snap.get("clusters"):
         return None
     return {
-        "clusters": snap["clusters"],
+        "clusters": _sanitize_snapshot_clusters(snap["clusters"]),
         "article_count": snap.get("article_count", 0),
         "last_updated": snap.get("last_updated") or snap.get("created_at"),
         "served_from": f"snapshot:{newest}",
@@ -345,6 +482,14 @@ def get_cluster(cluster_id: str) -> Optional[dict]:
         conn.close()
         return None
 
+    summary = (row["summary"] or "").strip()
+    if not summary or summary.startswith("["):
+        # The live cluster row is a placeholder (BART wasn't loaded when this
+        # was saved). Surface as 404 so the cluster detail page doesn't
+        # render "[Summary unavailable...]" and a forever-spinning analyzer.
+        conn.close()
+        return None
+
     cluster = {
         "cluster_id": row["id"],
         "summary": row["summary"],
@@ -356,9 +501,12 @@ def get_cluster(cluster_id: str) -> Optional[dict]:
         "article_count": row["article_count"],
         "updated_at": row["updated_at"]
     }
+    cluster = _repair_cluster_source_pairings(cluster)
 
     cursor.execute("""
-        SELECT url, title, source, text, credibility_score, credibility_label, bias_label
+        SELECT url, title, source, text, credibility_score, credibility_label,
+               bias_label, dominant_emotion, subjectivity_ratio,
+               analysis_json, article_json, analysis_status
         FROM articles WHERE cluster_id = ?
     """, (cluster_id,))
     articles = []
@@ -376,6 +524,12 @@ def get_cluster(cluster_id: str) -> Optional[dict]:
             "credibility_score": article_row["credibility_score"],
             "credibility_label": article_row["credibility_label"],
             "lean": lean,
+            "bias_label": article_row["bias_label"],
+            "dominant_emotion": article_row["dominant_emotion"],
+            "subjectivity_ratio": article_row["subjectivity_ratio"],
+            "analysis_json": article_row["analysis_json"],
+            "article_json": article_row["article_json"],
+            "analysis_status": article_row["analysis_status"],
         })
 
     conn.close()

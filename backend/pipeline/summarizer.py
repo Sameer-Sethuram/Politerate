@@ -556,11 +556,27 @@ class PoliteratePipeline:
         else:
             raw_articles = self._build_raw_articles_with_dedup()
 
+        # Flatten {source: {url: article}} into a list, deduping by URL.
+        # RSS feeds overlap (e.g. NYPost Politics and NYPost US News both
+        # list the same article), so the same URL can appear under two
+        # different source labels. Without this guard those identical
+        # articles cluster together and render as duplicate badges.
         flat_articles = []
+        seen_urls = set()
+        skipped_dupes = 0
         for source, articles in raw_articles.items():
             for url, article in articles.items():
+                if url in seen_urls:
+                    skipped_dupes += 1
+                    continue
+                seen_urls.add(url)
                 article["source"] = source
                 flat_articles.append(article)
+        if skipped_dupes:
+            logger.info(
+                f"Deduped {skipped_dupes} cross-feed duplicate URL(s) "
+                f"during pipeline flatten"
+            )
 
         if not flat_articles:
             logger.warning("No articles to process")

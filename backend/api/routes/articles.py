@@ -121,16 +121,23 @@ def get_all_articles():
 
 @articles_bp.route("/api/cluster/<cluster_id>/analysis")
 def api_cluster_analysis(cluster_id):
-    from backend.inference import get_analyzer
+    """Return per-article DeBERTa analysis for a cluster.
 
+    Reads `articles.analysis_json` / `articles.article_json` populated by
+    the pipeline's credibility filter. Never runs live inference — running
+    DeBERTa synchronously per article on CPU would block the request for
+    minutes. If a particular article doesn't have cached analysis yet
+    (analysis_status=pending), we surface that to the UI so it shows
+    'Analysis pending' instead of a forever-spinning placeholder.
+    """
     cluster = get_cluster(cluster_id)
     if not cluster:
         return jsonify({"error": "Cluster not found"}), 404
 
-    analyzer = get_analyzer()
     articles_out = []
+    cached_count = 0
+    pending_count = 0
     for article in cluster.get("articles", []):
-        text = (article.get("text") or "").strip()
         entry = {
             "url": article.get("url"),
             "title": article.get("title"),
@@ -138,17 +145,36 @@ def api_cluster_analysis(cluster_id):
             "credibility_score": article.get("credibility_score"),
             "credibility_label": article.get("credibility_label"),
             "analysis": None,
+            "analysis_status": article.get("analysis_status") or "pending",
         }
-        if len(text) >= 50:
+
+        chunks_raw = article.get("analysis_json")
+        article_agg_raw = article.get("article_json")
+        if chunks_raw or article_agg_raw:
             try:
-                entry["analysis"] = analyzer.predict_article(text)
-            except Exception as e:
-                logger.warning(f"Analyzer failed for {article.get('url')}: {e}")
-                entry["analysis_error"] = str(e)[:120]
+                chunks = json.loads(chunks_raw) if chunks_raw else []
+                article_agg = json.loads(article_agg_raw) if article_agg_raw else {}
+                entry["analysis"] = {"chunks": chunks, "article": article_agg}
+                entry["analysis_status"] = "done"
+                cached_count += 1
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Failed to parse cached analysis for {article.get('url')}: {e}")
+                entry["analysis_error"] = "cached analysis is malformed"
+                pending_count += 1
+        else:
+            pending_count += 1
+
         articles_out.append(entry)
+
+    logger.info(
+        f"Cluster {cluster_id} analysis: {cached_count} cached, "
+        f"{pending_count} pending (no live inference)"
+    )
 
     return jsonify({
         "cluster_id": cluster.get("cluster_id"),
-        "model_version": getattr(analyzer, "model_version", "unknown"),
+        "model_version": "cached",
+        "cached_count": cached_count,
+        "pending_count": pending_count,
         "articles": articles_out,
     })

@@ -67,9 +67,15 @@ models/credibility/*.safetensors
 # Summarizer model folder
 fine_tuned_bart_news/
 
-# DeBERTa analyzer weights (git-ignored; downloaded from HF Hub at runtime)
+# DeBERTa analyzer weights (git-ignored; downloaded from HF Hub at runtime).
+# Cover both the legacy backend/inference/weights/ path AND the current
+# backend/models/ path. analyzer.pt is ~740 MB — far above GitHub's 100 MB
+# hard limit.
 backend/inference/weights/*
 !backend/inference/weights/.gitkeep
+backend/models/*.pt
+backend/models/*.safetensors
+backend/models/*.bin
 
 # Dev scratch: pipeline test runners and their outputs
 outputs/
