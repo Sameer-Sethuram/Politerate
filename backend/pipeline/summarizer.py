@@ -23,7 +23,6 @@ from backend.pipeline.preprocessor import preprocess_batch
 from backend.pipeline.clustering import cluster_articles, ArticleClusterer
 from backend.pipeline.credibility import filter_by_credibility
 from backend.pipeline.highlighter import TermHighlighter
-from backend.db.cache import save_unclustered_articles
 logging.basicConfig(
     level=logging.INFO,
     format="[%(levelname)s] %(message)s"
@@ -41,20 +40,21 @@ MAX_CLUSTERS_IN_DAILY_BRIEF = 8
 MAX_CLUSTERS_IN_BRIEF_INPUT = 5
 
 # Conditional generation tiers: (source_token_threshold, (max_length, min_length)).
-# Scales BART output budget to the size of the source material. Prevents
-# hallucination on thin clusters (small source -> short target) while still
-# giving rich clusters room to breathe. Measured against the PRE-truncation
-# token count, not BART's 1024-cap input.
+# Measured against the PRE-truncation token count, not BART's 1024-cap input.
+#
+# The fine-tuned model (summarizer.ipynb) was trained on targets truncated to
+# 64 tokens, so it has never produced anything longer. Forcing a high
+# min_length makes it keep generating after it wants to stop, and with
+# no_repeat_ngram_size=3 blocking repeats it falls into junk tokens and
+# merged words. Keep min_length low and max_length near the training length.
 _SOURCE_BUDGET_TIERS = [
-    (1200,           (140, 40)),   # ~1 short article
-    (2800,           (200, 70)),   # ~2 articles
-    (5500,           (240, 100)),  # ~3-5 articles
-    (float("inf"),   (280, 130)),  # rich cluster
+    (1200,           (64, 20)),   # ~1 short article
+    (2800,           (80, 25)),   # ~2 articles
+    (float("inf"),   (96, 30)),   # 3+ articles
 ]
-# Threshold above which the truncation retry is allowed to use aggressive
-# params (early_stopping=False, higher min_length). Below this, the retry
-# stays conservative to avoid forcing hallucination.
-_RICH_SOURCE_THRESHOLD = 2800
+# Extra max_length the retry gets to finish a sentence cut off at an
+# abbreviation. min_length is NOT raised on retry, for the reason above.
+_RETRY_EXTRA_TOKENS = 32
 
 
 def _budget_for_source(token_count: int) -> tuple[int, int]:
@@ -176,6 +176,26 @@ def _clean_bart_output(text: str) -> str:
     return text
 
 
+def _summary_bullets(summary: str) -> list[str]:
+    """Split a cluster summary into one bullet per sentence for the Daily
+    Brief. Bad sentences (garbled, fragments) are dropped individually so one
+    broken sentence doesn't take the whole topic down with it."""
+    if not summary or summary.startswith("["):
+        return []
+    bullets = []
+    # BART sometimes emits newline-separated highlights (CNN/DailyMail style)
+    # with no period between them, so split on lines before sentences.
+    for line in _clean_bart_output(summary).splitlines():
+        for sentence in _smart_sentence_split(line.strip()):
+            sentence = sentence.strip()
+            if len(sentence.split()) < MIN_SENT_WORDS or _looks_garbled(sentence):
+                continue
+            if sentence[-1] not in ".!?":
+                sentence += "."
+            bullets.append(sentence)
+    return bullets
+
+
 class PoliteratePipeline:
     def __init__(
         self,
@@ -293,12 +313,9 @@ class PoliteratePipeline:
         Flow (hard-capped at two BART calls):
           1. Primary attempt at the tier-appropriate budget.
           2. Always try to salvage garbled output in-place (no extra BART call).
-          3. If still garbled OR truncated at an abbreviation, ONE retry
-             with params that scale with source richness:
-               - Rich source (>= _RICH_SOURCE_THRESHOLD tokens): aggressive —
-                 early_stopping=False, higher min_length, longer length penalty.
-               - Thin source: conservative — keep early_stopping on, modest
-                 budget bump. Avoids forcing BART to invent content.
+          3. If still garbled OR truncated at an abbreviation, ONE retry with
+             a little more max_length room (same min_length) so BART can
+             finish the sentence without being forced past its stopping point.
           4. Accept the retry only if it's strictly better; otherwise keep
              the original cleaned output.
         """
@@ -322,21 +339,15 @@ class PoliteratePipeline:
         if not is_garbled and not is_truncated:
             return cleaned
 
-        rich_source = source_tokens >= _RICH_SOURCE_THRESHOLD
         logger.warning(
-            "Retry (tokens=%d, rich=%s, garbled=%s, truncated=%s)",
-            source_tokens, rich_source, is_garbled, is_truncated,
+            "Retry (tokens=%d, garbled=%s, truncated=%s)",
+            source_tokens, is_garbled, is_truncated,
         )
 
         retry = _clean_bart_output(self._bart_generate(
             text,
-            max_length=effective_max + 140,
-            min_length=(
-                max(effective_min + 40, 120) if rich_source
-                else effective_min + 20
-            ),
-            length_penalty=1.4 if rich_source else 1.2,
-            early_stopping=not rich_source,
+            max_length=effective_max + _RETRY_EXTRA_TOKENS,
+            min_length=effective_min,
         ))
         retry = self._salvage_if_garbled(retry)
 
@@ -439,9 +450,25 @@ class PoliteratePipeline:
         unique_sources = sorted(source_to_url.keys())
         source_links = [{"source": s, "url": source_to_url[s]} for s in unique_sources]
 
+        # Bulleted brief: one section per top topic, one bullet per sentence.
+        # Each bullet is highlighted separately so term markup never spans two.
+        sections = []
+        for c in self._select_brief_clusters(clusters):
+            bullets = _summary_bullets(c.get("summary", ""))
+            if not bullets:
+                continue
+            sections.append({
+                "cluster_id": c.get("cluster_id"),
+                "headline": (c.get("titles") or [""])[0],
+                "bullets": [self.highlighter.highlight(b) for b in bullets],
+                "article_count": c.get("article_count", 0),
+            })
+
+        unified_summary = self.create_daily_summary(filtered_clusters)
         return {
-            "unified_summary": self.create_daily_summary(filtered_clusters),
-            "highlighted_summary": self.highlighter.highlight(self.create_daily_summary(filtered_clusters)),
+            "sections": sections,
+            "unified_summary": unified_summary,
+            "highlighted_summary": self.highlighter.highlight(unified_summary),
             "cluster_count": len(filtered_clusters),
             "source_count": len(unique_sources),
             "sources": unique_sources,
@@ -460,7 +487,16 @@ class PoliteratePipeline:
                 continue
 
             cluster_text = " ".join(a.get("text", "") for a in articles)
-            sources = list(set(a.get("source", "unknown") for a in articles))
+
+            # Build source→URL map in insertion order so sources[i] and urls[i]
+            # are always the same article (frontend pairs them by index).
+            seen_sources: dict[str, str] = {}
+            for a in articles:
+                src = a.get("source", "unknown")
+                if src not in seen_sources:
+                    seen_sources[src] = a.get("url", "")
+            sources = list(seen_sources.keys())
+            source_urls = list(seen_sources.values())
 
             summary = self.summarize(cluster_text)
             highlighted_summary = self.highlight_terms(summary)
@@ -470,7 +506,7 @@ class PoliteratePipeline:
                 "cluster_id": cluster_id,
                 "article_count": len(articles),
                 "sources": sources,
-                "urls": [a.get("url") for a in articles],
+                "urls": source_urls,
                 "titles": [a.get("title") for a in articles],
                 "summary": summary,
                 "highlighted_summary": highlighted_summary,
@@ -558,7 +594,7 @@ class PoliteratePipeline:
 
         flat_articles = []
         for source, articles in raw_articles.items():
-            for url, article in articles.items():
+            for _, article in articles.items():
                 article["source"] = source
                 flat_articles.append(article)
 

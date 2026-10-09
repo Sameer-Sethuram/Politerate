@@ -80,8 +80,9 @@ def _cluster_is_good(cluster: dict) -> bool:
 def save_unclustered_articles(articles: list[dict]) -> int:
     """Persist articles that didn't make it into a named cluster.
 
-    Uses INSERT OR IGNORE so a previously-clustered article is never
-    demoted (its cluster_id stays intact if it already exists in the table).
+    On conflict only scraped_at is refreshed, so a previously-clustered
+    article is never demoted (its cluster_id stays intact) but still counts
+    as seen today on the All Articles page.
     Each article may carry a 'cluster_id' key set by the caller (e.g.
     'singleton_<hash>' for singletons, or absent for credibility failures).
     """
@@ -99,11 +100,12 @@ def save_unclustered_articles(articles: list[dict]) -> int:
         has_analysis = bool(analysis)
         try:
             cursor.execute("""
-                INSERT OR IGNORE INTO articles
+                INSERT INTO articles
                 (url, title, source, text, credibility_score, credibility_label, cluster_id, scraped_at,
                  analysis_json, article_json, bias_label, dominant_emotion, subjectivity_ratio,
                  analysis_status, analyzed_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(url) DO UPDATE SET scraped_at = excluded.scraped_at
             """, (
                 article.get("url", ""),
                 article.get("title", ""),
@@ -158,6 +160,13 @@ def save_clusters(clusters: list[dict]) -> int:
     saved = 0
 
     cursor.execute("DELETE FROM clusters")
+    # Cluster IDs are reassigned 0..N on every run, so unlink articles from
+    # the previous run's clusters — otherwise old articles leak into whatever
+    # new cluster reuses their ID. Current members are re-linked below.
+    cursor.execute("""
+        UPDATE articles SET cluster_id = NULL
+        WHERE cluster_id IS NOT NULL AND cluster_id NOT LIKE 'singleton_%'
+    """)
 
     for cluster in clusters:
         cursor.execute("""
@@ -252,19 +261,26 @@ def is_stale() -> bool:
         return True
 
 
+def today_str() -> str:
+    """Server-local date that 'today' means everywhere (summaries, All
+    Articles page, daily snapshot keys)."""
+    return datetime.now().strftime("%Y-%m-%d")
+
+
 def get_cached_summaries() -> dict:
-    """Return the current cluster snapshot. If the live `clusters` table is
-    empty OR every cluster is a placeholder (happens when the pipeline
-    races the model load), fall back to the most recent daily_snapshot —
-    stale data beats an empty page."""
+    """Return today's cluster snapshot. If today's live clusters are empty
+    OR every cluster is a placeholder (happens when the pipeline races the
+    model load), fall back to today's daily_snapshot. Clusters from earlier
+    days are never served here — those only live in the Archive."""
     conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
         SELECT id, summary, highlighted_summary, sources, urls, titles, terms, article_count, updated_at
         FROM clusters
+        WHERE date(updated_at) = ?
         ORDER BY article_count DESC, updated_at DESC
-    """)
+    """, (today_str(),))
     rows = cursor.fetchall()
 
     cursor.execute("SELECT url, credibility_score, credibility_label FROM articles")
@@ -297,11 +313,11 @@ def get_cached_summaries() -> dict:
 
     has_good = any(_cluster_is_good(c) for c in clusters)
     if not has_good:
-        fallback = _fallback_to_latest_snapshot()
+        fallback = _fallback_to_todays_snapshot()
         if fallback is not None:
             logger.info(
                 "get_cached_summaries: live clusters are empty/placeholder — "
-                "serving latest daily snapshot instead"
+                "serving today's daily snapshot instead"
             )
             return fallback
 
@@ -313,21 +329,18 @@ def get_cached_summaries() -> dict:
     }
 
 
-def _fallback_to_latest_snapshot() -> Optional[dict]:
-    """Return the newest daily_snapshot's cluster payload, or None if there
-    are no snapshots yet. Output matches get_cached_summaries()'s shape."""
-    snapshots = list_snapshot_dates()
-    if not snapshots:
-        return None
-    newest = snapshots[0]["date"]
-    snap = get_snapshot(newest)
+def _fallback_to_todays_snapshot() -> Optional[dict]:
+    """Return today's daily_snapshot cluster payload, or None if there is no
+    snapshot for today yet. Output matches get_cached_summaries()'s shape."""
+    today = today_str()
+    snap = get_snapshot(today)
     if not snap or not snap.get("clusters"):
         return None
     return {
         "clusters": snap["clusters"],
         "article_count": snap.get("article_count", 0),
         "last_updated": snap.get("last_updated") or snap.get("created_at"),
-        "served_from": f"snapshot:{newest}",
+        "served_from": f"snapshot:{today}",
     }
 
 
@@ -337,8 +350,8 @@ def get_cluster(cluster_id: str) -> Optional[dict]:
 
     cursor.execute("""
         SELECT id, summary, highlighted_summary, sources, urls, titles, terms, article_count, updated_at
-        FROM clusters WHERE id = ?
-    """, (cluster_id,))
+        FROM clusters WHERE id = ? AND date(updated_at) = ?
+    """, (cluster_id, today_str()))
     row = cursor.fetchone()
 
     if not row:
@@ -555,7 +568,7 @@ def prune_archive(days: int = 7) -> int:
 def save_daily_snapshot(date_str: Optional[str] = None) -> bool:
     """Persist today's cluster state into daily_snapshots. Re-callable (UPSERT)."""
     if date_str is None:
-        date_str = datetime.now().strftime("%Y-%m-%d")
+        date_str = today_str()
 
     cached = get_cached_summaries()
     clusters = cached.get("clusters", [])

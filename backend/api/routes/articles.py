@@ -2,14 +2,18 @@
 
 import json
 import logging
+from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify, request
 
-from backend.db.cache import get_cached_summaries, get_cluster, is_stale
+from backend.db.cache import get_cached_summaries, get_cluster, is_stale, today_str
 from backend.db.connection import get_connection
 
 articles_bp = Blueprint("articles", __name__)
 logger = logging.getLogger(__name__)
+
+# All Articles page shows today plus this many previous days.
+ALL_ARTICLES_PAST_DAYS = 7
 
 
 @articles_bp.route("/api/summaries")
@@ -84,22 +88,28 @@ def api_article_analysis():
 
 @articles_bp.route("/api/all-articles")
 def get_all_articles():
+    today = today_str()
+    since = (datetime.now() - timedelta(days=ALL_ARTICLES_PAST_DAYS)).strftime("%Y-%m-%d")
+
+    # in_summary = linked to one of today's clusters (the ones the Daily
+    # Brief is built from), so older articles never count as in the brief.
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT url, title, source, credibility_score, credibility_label,
-               bias_label, analysis_status, cluster_id, scraped_at
-        FROM articles
-        WHERE url IS NOT NULL AND url != ''
-        ORDER BY scraped_at DESC
-    """)
+        SELECT a.url, a.title, a.source, a.credibility_score, a.credibility_label,
+               a.bias_label, a.analysis_status, a.scraped_at,
+               k.id IS NOT NULL AS in_summary
+        FROM articles a
+        LEFT JOIN clusters k ON k.id = a.cluster_id AND date(k.updated_at) = ?
+        WHERE a.url IS NOT NULL AND a.url != ''
+          AND date(a.scraped_at) >= ?
+        ORDER BY a.scraped_at DESC
+    """, (today, since))
     rows = cursor.fetchall()
     conn.close()
 
     articles = []
     for row in rows:
-        cid = row["cluster_id"] or ""
-        in_summary = bool(cid) and not cid.startswith("singleton_")
         lean = next(
             (v for v in (row["credibility_label"], row["bias_label"])
              if v and v != "unknown"),
@@ -112,11 +122,11 @@ def get_all_articles():
             "credibility_score": row["credibility_score"],
             "lean": lean,
             "analysis_status": row["analysis_status"],
-            "in_summary": in_summary,
+            "in_summary": bool(row["in_summary"]),
             "scraped_at": row["scraped_at"],
         })
 
-    return jsonify({"articles": articles, "total": len(articles)})
+    return jsonify({"articles": articles, "total": len(articles), "today": today})
 
 
 @articles_bp.route("/api/cluster/<cluster_id>/analysis")
@@ -127,9 +137,15 @@ def api_cluster_analysis(cluster_id):
     if not cluster:
         return jsonify({"error": "Cluster not found"}), 404
 
+    MAX_ARTICLES_TO_ANALYZE = 8
+    all_articles = sorted(
+        cluster.get("articles", []),
+        key=lambda a: a.get("credibility_score") or 0,
+        reverse=True,
+    )
     analyzer = get_analyzer()
     articles_out = []
-    for article in cluster.get("articles", []):
+    for article in all_articles[:MAX_ARTICLES_TO_ANALYZE]:
         text = (article.get("text") or "").strip()
         entry = {
             "url": article.get("url"),

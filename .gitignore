@@ -45,6 +45,11 @@ logs/
 .env.local
 *.pem
 *.key
+startup.txt
+
+# Frontend (React/Vite) deps + build output
+frontend/node_modules/
+frontend/dist/
 
 # Intermediate / scratch files
 resources_extracted.txt

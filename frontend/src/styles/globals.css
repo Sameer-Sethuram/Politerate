@@ -1,0 +1,45 @@
+@utility font-display {
+  font-family: var(--font-display);
+}
+
+@utility font-data {
+  font-family: var(--font-data);
+}
+
+/* Glossary-term highlights injected by the backend highlighter
+   (backend/pipeline/highlighter.py) into `highlighted_summary` HTML. */
+.politerate-term {
+  border-bottom: 2px dotted var(--brand-accent);
+  cursor: help;
+  position: relative;
+  padding: 0 1px;
+  transition: background 160ms ease;
+}
+.politerate-term:hover {
+  background: var(--brand-accent-soft);
+}
+.politerate-term::after {
+  content: attr(title);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+  background: var(--brand-dark);
+  color: var(--background);
+  padding: 0.55rem 0.8rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  max-width: 320px;
+  width: max-content;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 160ms ease, visibility 160ms ease;
+  z-index: 50;
+  box-shadow: 0 8px 32px rgba(30, 30, 63, 0.12);
+  pointer-events: none;
+}
+.politerate-term:hover::after {
+  opacity: 1;
+  visibility: visible;
+}
