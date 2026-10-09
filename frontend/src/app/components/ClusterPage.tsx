@@ -41,6 +41,7 @@ interface ArticleAnalysis {
 
 interface ArticleEntry {
   url: string;
+  analysis_status?: string;
   analysis_error?: string;
   analysis?: { article: ArticleAnalysis; chunks: Chunk[] } | null;
 }
@@ -123,7 +124,7 @@ function ArticleBlock({
         {status === "loading" && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Spinner size={14} />
-            <span>Running analyzer…</span>
+            <span>Loading analysis…</span>
           </div>
         )}
 
@@ -133,13 +134,17 @@ function ArticleBlock({
           </p>
         )}
 
-        {/* The backend only analyzes the top-N articles by credibility. */}
         {status === "done" && !entry && (
           <p className="text-sm text-muted-foreground">No analysis available.</p>
         )}
 
+        {/* Analysis is read from the pipeline's cache, never run live. */}
         {status === "done" && entry && !entry.analysis && !entry.analysis_error && (
-          <p className="text-sm text-muted-foreground">Article text too short to analyze.</p>
+          <p className="text-sm text-muted-foreground">
+            {entry.analysis_status === "pending"
+              ? "Analysis pending — this article hasn’t been processed yet. Refresh after the next pipeline run."
+              : "No cached analysis available for this article."}
+          </p>
         )}
 
         {entry?.analysis_error && (

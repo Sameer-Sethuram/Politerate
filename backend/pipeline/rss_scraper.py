@@ -18,6 +18,7 @@ from bs4 import BeautifulSoup
 # ------------------------------------------------------------
 
 RSS_FEEDS = {
+    # --- Original feeds (8) ---
     "Fox": "https://moxie.foxnews.com/google-publisher/politics.xml",
     "NBC": "https://feeds.nbcnews.com/nbcnews/public/politics",
     "NYPost - Politics": "https://nypost.com/politics/feed/",
@@ -25,7 +26,19 @@ RSS_FEEDS = {
     "CBS": "https://www.cbsnews.com/latest/rss/politics",
     "ABC": "https://abcnews.go.com/abcnews/politicsheadlines",
     "Guardian": "https://www.theguardian.com/us-news/us-politics/rss",
-    "AP News": "https://feedx.net/rss/ap.xml"
+    "AP News": "https://feedx.net/rss/ap.xml",
+
+    # --- Expanded coverage (added 2026-05-08 for expo) ---
+    # Center / mainstream
+    "The Hill": "https://thehill.com/feed/",
+    "PBS NewsHour": "https://www.pbs.org/newshour/feeds/rss/headlines",
+    "BBC US Politics": "https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml",
+    # Center-left
+    "CNN Politics": "http://rss.cnn.com/rss/cnn_allpolitics.rss",
+    "NPR Politics": "https://feeds.npr.org/1014/rss.xml",
+    "Politico": "https://rss.politico.com/politics-news.xml",
+    # Center-right
+    "Washington Examiner": "https://www.washingtonexaminer.com/section/news/politics/feed/",
 }
 
 # ------------------------------------------------------------
