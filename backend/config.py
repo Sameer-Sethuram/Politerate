@@ -18,6 +18,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = PROJECT_ROOT / "templates"
 STATIC_DIR = PROJECT_ROOT / "static"
 
+# React/TypeScript frontend build output (`npm run build` in frontend/).
+FRONTEND_DIST_DIR = PROJECT_ROOT / "frontend" / "dist"
+
 # SQLite cache. Kept at project root so existing DBs aren't orphaned.
 DB_PATH = PROJECT_ROOT / "politerate.db"
 

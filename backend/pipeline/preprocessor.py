@@ -21,20 +21,68 @@ logger = logging.getLogger(__name__)
 MIN_TEXT_LENGTH = 200
 MAX_TOKENS = 1024
 
+_BOILERPLATE = re.compile(
+    r"(subscribe|sign[\s-]?up|log[\s-]?in|already a (subscriber|member)|"
+    r"create (an? )?account|newsletter|click here|read more|continue reading|"
+    r"share (this|on)|follow us|all rights reserved|copyright \d{4}|"
+    r"terms of (use|service)|privacy policy|cookie(s)?|advertisement|"
+    r"skip to (content|main)|you('ve)? reached your|free article|"
+    r"get unlimited access|support (our|independent) journalism|"
+    r"this article (is|was) (originally )?published|contributed to this report)",
+    re.IGNORECASE,
+)
+
+# Photo credits like "(AP Photo/J. Scott Applewhite)" or "(Kevin Dietsch/Getty Images)"
+_PHOTO_CREDIT = re.compile(r"\s*\([^()]{0,80}\b(?:Photo|Getty Images|Pool)\b[^()]{0,80}\)")
+
+# Lines shorter than this (in words) that aren't mid-paragraph get dropped
+_MIN_LINE_WORDS = 5
+
+
+def _is_all_caps(line: str) -> bool:
+    """ALL-CAPS lines are inline link teasers / promos ("CLICK HERE TO GET THE
+    FOX NEWS APP", "TRUMP SAYS HE WILL ..."), never article prose."""
+    letters = [c for c in line if c.isalpha()]
+    return len(letters) >= 12 and sum(c.isupper() for c in letters) / len(letters) > 0.8
+
+
+def _strip_boilerplate_lines(text: str) -> str:
+    """Remove lines that are standalone boilerplate (short or matching known patterns)."""
+    lines = text.split("\n")
+    cleaned = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            cleaned.append("")
+            continue
+        word_count = len(stripped.split())
+        if word_count < _MIN_LINE_WORDS and _BOILERPLATE.search(stripped):
+            continue
+        if _BOILERPLATE.search(stripped) and stripped.endswith((".", "→", "»", "›")):
+            continue
+        if _is_all_caps(stripped):
+            continue
+        cleaned.append(line)
+    return "\n".join(cleaned)
+
 
 def clean_text(text: str) -> str:
     if not text:
         return ""
 
     text = text.replace("\xa0", " ")
+    text = unicodedata.normalize("NFKC", text)
+
+    # Strip common scraper artifacts: bracketed image captions, URLs inline
+    text = re.sub(r"\[(\d+|image|photo|video|gallery|caption)[^\]]*\]", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"https?://\S+", "", text)
+    text = _PHOTO_CREDIT.sub("", text)
+
+    text = _strip_boilerplate_lines(text)
 
     text = re.sub(r"[ \t]+", " ", text)
-
     text = re.sub(r"\n{3,}", "\n\n", text)
-
     text = re.sub(r"^[ \t]+|[ \t]+$", "", text, flags=re.MULTILINE)
-
-    text = unicodedata.normalize("NFKC", text)
 
     return text.strip()
 

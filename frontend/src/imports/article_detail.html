@@ -59,24 +59,49 @@
         return { cls, text: text[cls] };
     }
 
+    const TECHNIQUE_CATEGORY = {
+        'Loaded_Language':        'persuasion',
+        'Name_Calling_Labeling':  'persuasion',
+        'Appeal_to_fear_prejudice': 'appeal',
+        'Appeal_to_Authority':    'appeal',
+        'Flag_Waving':            'appeal',
+        'Exaggeration_Minimization': 'exaggeration',
+        'Bandwagon':              'exaggeration',
+        'Black_and_White_Fallacy': 'exaggeration',
+        'Doubt':                  'loaded',
+        'Thought_terminating_Cliches': 'loaded',
+        'Reductio_ad_hitlerum':   'loaded',
+        'Causal_Oversimplification': 'loaded',
+        'Whataboutism_Straw_Men_Red_Herring': 'loaded',
+        'Straw_Man':              'loaded',
+        'Red_Herring':            'loaded',
+        'Repetition':             'loaded',
+        'Slogans':                'loaded',
+        'Obfuscation_Intentional_Vagueness_Confusion': 'loaded',
+    };
+
+    function chunkCategory(chunk) {
+        const techs = chunk.techniques || [];
+        if (techs.length) {
+            const top = techs.slice().sort((a, b) => (b.confidence || 0) - (a.confidence || 0))[0];
+            return TECHNIQUE_CATEGORY[top.label] || 'loaded';
+        }
+        if (chunk.emotion && chunk.emotion !== 'neutral') return 'emotion';
+        return null;
+    }
+
     function renderChunks(chunks) {
         if (!chunks || chunks.length === 0) return '';
         return chunks.map(chunk => {
-            const techniques = (chunk.techniques || []).map(t => t.label.replace(/_/g, ' ')).join(', ');
+            const cat = chunkCategory(chunk);
+            const techList = (chunk.techniques || [])
+                .map(t => t.label.replace(/_/g, ' ')).join(', ');
             const emotion = chunk.emotion && chunk.emotion !== 'neutral' ? chunk.emotion : '';
-            const hasTechnique = techniques.length > 0;
+            let tooltip = techList ? techList + (emotion ? ` · ${emotion}` : '') : emotion;
 
-            let cls = '', tooltip = '';
-            if (hasTechnique) {
-                cls = 'chunk--flagged';
-                tooltip = techniques + (emotion ? ` · ${emotion}` : '');
-            } else if (chunk.subjective && emotion) {
-                cls = 'chunk--emotional';
-                tooltip = emotion;
-            }
-
-            const attrs = tooltip ? ` data-tip="${escapeHtml(tooltip)}"` : '';
-            return `<span class="chunk ${cls}"${attrs}>${escapeHtml(chunk.text)} </span>`;
+            const cls = cat ? ` class="annot annot--${cat}"` : '';
+            const tip = tooltip ? ` data-tip="${escapeHtml(tooltip)}"` : '';
+            return `<span${cls}${tip}>${escapeHtml(chunk.text)} </span>`;
         }).join('');
     }
 
@@ -182,9 +207,15 @@
             if (hasChunks) {
                 legend.style.display = 'flex';
                 legend.innerHTML = `
-                    <span class="chunk chunk--flagged">Persuasion technique</span>
-                    <span class="chunk chunk--emotional">Emotional tone</span>
-                    <span style="font-size:0.78rem;color:var(--text-subtle)">Hover for label</span>`;
+                    <span class="annotation-legend">
+                        <span class="annotation-legend__item"><span class="annotation-legend__swatch" style="background:#fee2e2;"></span>Persuasion</span>
+                        <span class="annotation-legend__item"><span class="annotation-legend__swatch" style="background:#f3e8ff;"></span>Appeal</span>
+                        <span class="annotation-legend__item"><span class="annotation-legend__swatch" style="background:#fce7f3;"></span>Exaggeration</span>
+                        <span class="annotation-legend__item"><span class="annotation-legend__swatch" style="background:#ffedd5;"></span>Loaded</span>
+                        <span class="annotation-legend__item"><span class="annotation-legend__swatch" style="background:#fef3c7;"></span>Emotional</span>
+                        <span style="font-size:0.78rem;color:var(--text-subtle);margin-left:0.5rem;">Hover for label</span>
+                    </span>`;
+                body.className = 'annotated-text';
                 body.innerHTML = renderChunks(data.chunks);
                 setupTooltip(body);
             } else if (data.text) {
