@@ -111,6 +111,19 @@ def _repair_cluster_source_pairings(cluster: dict) -> dict:
     return {**cluster, "sources": new_sources, "titles": titles}
 
 
+def _parse_json(raw, default=None):
+    if not raw:
+        return default
+    try:
+        return json.loads(raw)
+    except (ValueError, TypeError):
+        return default
+
+
+def _article_lean(credibility_label, bias_label) -> Optional[str]:
+    return next((v for v in (credibility_label, bias_label) if v and v != "unknown"), None)
+
+
 def save_articles(articles: list[dict]) -> int:
     if not articles:
         return 0
@@ -259,14 +272,17 @@ def save_clusters(clusters: list[dict]) -> int:
     """)
 
     for cluster in clusters:
+        detailed = cluster.get("detailed_summary")
         cursor.execute("""
             INSERT OR REPLACE INTO clusters
-            (id, summary, highlighted_summary, sources, urls, titles, terms, article_count, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, summary, highlighted_summary, detailed_summary, sources, urls, titles, terms,
+             article_count, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             str(cluster.get("cluster_id", "")),
             cluster.get("summary", ""),
             cluster.get("highlighted_summary", ""),
+            json.dumps(detailed) if detailed else None,
             json.dumps(cluster.get("sources", [])),
             json.dumps(cluster.get("urls", [])),
             json.dumps(cluster.get("titles", [])),
@@ -279,12 +295,16 @@ def save_clusters(clusters: list[dict]) -> int:
             analysis = article.get("_analysis") or {}
             article_agg = analysis.get("article") or {}
             has_analysis = bool(analysis)
+            # REPLACE rewrites the whole row, so the per-article summary is
+            # written back explicitly (the pipeline loaded it from the cache
+            # or just generated it).
+            article_summary = article.get("summary")
             cursor.execute("""
                 INSERT OR REPLACE INTO articles
                 (url, title, source, text, credibility_score, credibility_label, cluster_id, scraped_at,
                  analysis_json, article_json, bias_label, dominant_emotion, subjectivity_ratio,
-                 analysis_status, analyzed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 analysis_status, analyzed_at, summary, summary_model_version, summarized_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 article.get("url", ""),
                 article.get("title", ""),
@@ -301,6 +321,9 @@ def save_clusters(clusters: list[dict]) -> int:
                 article_agg.get("subjectivity_ratio"),
                 "done" if has_analysis else "pending",
                 datetime.now().isoformat() if has_analysis else None,
+                article_summary,
+                "bart-news" if article_summary else None,
+                article.get("summarized_at") if article_summary else None,
             ))
         saved += 1
 
@@ -366,7 +389,8 @@ def get_cached_summaries() -> dict:
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT id, summary, highlighted_summary, sources, urls, titles, terms, article_count, updated_at
+        SELECT id, summary, highlighted_summary, detailed_summary, sources, urls, titles, terms,
+               article_count, updated_at
         FROM clusters
         WHERE date(updated_at) = ?
         ORDER BY article_count DESC, updated_at DESC
@@ -387,6 +411,7 @@ def get_cached_summaries() -> dict:
             "cluster_id": row["id"],
             "summary": row["summary"],
             "highlighted_summary": row["highlighted_summary"],
+            "detailed_summary": _parse_json(row["detailed_summary"]),
             "sources": json.loads(row["sources"]) if row["sources"] else [],
             "urls": urls,
             "titles": json.loads(row["titles"]) if row["titles"] else [],
@@ -479,7 +504,8 @@ def get_cluster(cluster_id: str) -> Optional[dict]:
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT id, summary, highlighted_summary, sources, urls, titles, terms, article_count, updated_at
+        SELECT id, summary, highlighted_summary, detailed_summary, sources, urls, titles, terms,
+               article_count, updated_at
         FROM clusters WHERE id = ? AND date(updated_at) = ?
     """, (cluster_id, today_str()))
     row = cursor.fetchone()
@@ -500,6 +526,7 @@ def get_cluster(cluster_id: str) -> Optional[dict]:
         "cluster_id": row["id"],
         "summary": row["summary"],
         "highlighted_summary": row["highlighted_summary"],
+        "detailed_summary": _parse_json(row["detailed_summary"]),
         "sources": json.loads(row["sources"]) if row["sources"] else [],
         "urls": json.loads(row["urls"]) if row["urls"] else [],
         "titles": json.loads(row["titles"]) if row["titles"] else [],
@@ -512,24 +539,20 @@ def get_cluster(cluster_id: str) -> Optional[dict]:
     cursor.execute("""
         SELECT url, title, source, text, credibility_score, credibility_label,
                bias_label, dominant_emotion, subjectivity_ratio,
-               analysis_json, article_json, analysis_status
+               analysis_json, article_json, analysis_status, summary
         FROM articles WHERE cluster_id = ?
     """, (cluster_id,))
     articles = []
     for article_row in cursor.fetchall():
-        lean = next(
-            (v for v in (article_row["credibility_label"], article_row["bias_label"])
-             if v and v != "unknown"),
-            None
-        )
         articles.append({
             "url": article_row["url"],
             "title": article_row["title"],
             "source": article_row["source"],
             "text": article_row["text"],
+            "summary": article_row["summary"],
             "credibility_score": article_row["credibility_score"],
             "credibility_label": article_row["credibility_label"],
-            "lean": lean,
+            "lean": _article_lean(article_row["credibility_label"], article_row["bias_label"]),
             "bias_label": article_row["bias_label"],
             "dominant_emotion": article_row["dominant_emotion"],
             "subjectivity_ratio": article_row["subjectivity_ratio"],
@@ -541,6 +564,65 @@ def get_cluster(cluster_id: str) -> Optional[dict]:
     conn.close()
     cluster["articles"] = articles
     return cluster
+
+
+def get_article_summaries(urls: list[str]) -> dict[str, tuple[str, Optional[str]]]:
+    """Return {url: (summary, summarized_at)} for articles already summarized."""
+    if not urls:
+        return {}
+    conn = get_connection()
+    cursor = conn.cursor()
+    out = {}
+    # Chunked to stay under SQLite's bound-parameter limit.
+    for start in range(0, len(urls), 500):
+        batch = urls[start:start + 500]
+        placeholders = ",".join("?" * len(batch))
+        cursor.execute(
+            f"""SELECT url, summary, summarized_at FROM articles
+                WHERE url IN ({placeholders})
+                  AND summary IS NOT NULL AND summary != '' AND summary NOT LIKE '[%'""",
+            batch,
+        )
+        for row in cursor.fetchall():
+            out[row["url"]] = (row["summary"], row["summarized_at"])
+    conn.close()
+    return out
+
+
+def get_articles_with_analysis(urls: list[str]) -> dict[str, dict]:
+    """Return {url: article} with summary and cached DeBERTa analysis, in the
+    shape the cluster breakdown UI expects."""
+    if not urls:
+        return {}
+    conn = get_connection()
+    cursor = conn.cursor()
+    out = {}
+    for start in range(0, len(urls), 500):
+        batch = urls[start:start + 500]
+        placeholders = ",".join("?" * len(batch))
+        cursor.execute(
+            f"""SELECT url, title, source, summary, credibility_score, credibility_label,
+                       bias_label, analysis_json, article_json, analysis_status
+                FROM articles WHERE url IN ({placeholders})""",
+            batch,
+        )
+        for row in cursor.fetchall():
+            chunks = _parse_json(row["analysis_json"])
+            article_agg = _parse_json(row["article_json"])
+            has_analysis = chunks is not None or article_agg is not None
+            out[row["url"]] = {
+                "url": row["url"],
+                "title": row["title"],
+                "source": row["source"],
+                "summary": row["summary"],
+                "credibility_score": row["credibility_score"],
+                "credibility_label": row["credibility_label"],
+                "lean": _article_lean(row["credibility_label"], row["bias_label"]),
+                "analysis_status": "done" if has_analysis else (row["analysis_status"] or "pending"),
+                "analysis": {"chunks": chunks or [], "article": article_agg or {}} if has_analysis else None,
+            }
+    conn.close()
+    return out
 
 
 def get_all_articles() -> list[dict]:
@@ -786,6 +868,16 @@ def get_snapshot(date_str: str) -> Optional[dict]:
         "created_at": row["created_at"],
         "last_updated": payload.get("last_updated"),
     }
+
+
+def get_archive_day(date_str: str) -> Optional[dict]:
+    """A day's snapshot with its clusters repaired and placeholders dropped,
+    ready to display."""
+    snap = get_snapshot(date_str)
+    if not snap:
+        return None
+    snap["clusters"] = _sanitize_snapshot_clusters(snap.get("clusters") or [])
+    return snap
 
 
 def list_snapshot_dates() -> list[dict]:

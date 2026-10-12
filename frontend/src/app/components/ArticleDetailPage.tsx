@@ -52,9 +52,9 @@ export function ArticleDetailPage() {
       {/* Back link */}
       <Link
         to="/all-articles"
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
+        className="inline-flex items-center gap-1.5 text-base text-muted-foreground hover:text-foreground transition-colors mb-6"
       >
-        <ArrowLeft size={14} />
+        <ArrowLeft size={17} />
         All Articles
       </Link>
 
@@ -69,10 +69,10 @@ export function ArticleDetailPage() {
         <StateBox>
           <AlertCircle className="text-destructive" size={32} />
           <p className="text-destructive font-medium mb-2">Article not found</p>
-          <p className="text-sm text-muted-foreground">{error}</p>
+          <p className="text-base text-muted-foreground">{error}</p>
           <Link
             to="/all-articles"
-            className="mt-3 px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-medium hover:opacity-90"
+            className="mt-3 px-5 py-2.5 bg-primary text-primary-foreground rounded text-base font-medium hover:opacity-90"
           >
             Back to Articles
           </Link>
@@ -88,14 +88,14 @@ export function ArticleDetailPage() {
               style={{
                 fontFamily: "var(--font-display)",
                 fontWeight: 700,
-                fontSize: "1.4rem",
-                lineHeight: 1.3,
+                fontSize: "1.85rem",
+                lineHeight: 1.25,
               }}
             >
               {data.title ?? "Untitled"}
             </h1>
 
-            <div className="flex flex-wrap items-center gap-2 text-sm">
+            <div className="flex flex-wrap items-center gap-2 text-base">
               {data.source && (
                 <span className="font-semibold text-muted-foreground">{data.source}</span>
               )}
@@ -109,9 +109,9 @@ export function ArticleDetailPage() {
                   href={url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground border border-border rounded px-2 py-1 transition-colors ml-auto"
+                  className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground border border-border rounded px-3 py-1.5 transition-colors ml-auto"
                 >
-                  <ExternalLink size={11} />
+                  <ExternalLink size={15} />
                   Original article
                 </a>
               )}
@@ -127,7 +127,7 @@ export function ArticleDetailPage() {
                   <AnnotationLegend />
                   <button
                     onClick={() => setShowAnnotated(a => !a)}
-                    className="shrink-0 text-xs font-medium border border-border rounded px-3 py-1.5 text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+                    className="shrink-0 text-sm font-medium border border-border rounded px-4 py-1.5 text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
                   >
                     {showAnnotated ? "Hide analysis" : "Show analysis"}
                   </button>
@@ -136,15 +136,15 @@ export function ArticleDetailPage() {
                 {showAnnotated ? (
                   <AnnotatedText chunks={data.chunks!} />
                 ) : (
-                  <p className="text-sm leading-7 text-foreground whitespace-pre-wrap">
+                  <p className="text-lg leading-relaxed text-foreground whitespace-pre-wrap">
                     {data.chunks!.map(c => c.text).join(" ")}
                   </p>
                 )}
               </>
             ) : data.text ? (
-              <p className="text-sm leading-7 text-foreground whitespace-pre-wrap">{data.text}</p>
+              <p className="text-lg leading-relaxed text-foreground whitespace-pre-wrap">{data.text}</p>
             ) : (
-              <p className="text-sm text-muted-foreground italic">
+              <p className="text-base text-muted-foreground italic">
                 No content available for this article.
               </p>
             )}

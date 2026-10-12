@@ -61,7 +61,7 @@ export function StateBox({ children }: { children: React.ReactNode }) {
 
 export function AiBanner() {
   return (
-    <div className="bg-secondary border-b border-border text-center py-2 px-4 text-xs text-muted-foreground">
+    <div className="bg-secondary border-b border-border text-center py-2.5 px-4 text-sm text-muted-foreground">
       ⚠ Summaries on this page are AI-generated — verify against linked sources before sharing.
     </div>
   );
@@ -86,7 +86,7 @@ export function LeanBadge({ lean }: { lean: string }) {
   if (!c) return null;
   return (
     <span
-      className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-xs font-semibold"
+      className="inline-flex items-center px-2 py-0.5 rounded-sm text-sm font-semibold"
       style={{ background: c.bg, color: c.color }}
     >
       {c.label}
@@ -100,8 +100,9 @@ export function CredBadge({ score }: { score: number }) {
   const color = high ? "#15803d" : med ? "#854d0e" : "#991b1b";
   return (
     <span
-      className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-xs tabular-nums"
+      className="inline-flex items-center px-2 py-0.5 rounded-sm text-sm tabular-nums"
       style={{ background: bg, color, fontFamily: "var(--font-data)" }}
+      title="Credibility score (0–1): higher means less loaded, subjective language"
     >
       {score.toFixed(2)}
     </span>
@@ -126,7 +127,7 @@ export function EmotionBadge({ emotion }: { emotion: string }) {
   const s = EMOTION_STYLES[emotion] ?? EMOTION_STYLES.neutral;
   return (
     <span
-      className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold capitalize"
+      className="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-semibold capitalize"
       style={{ background: s.bg, color: s.color }}
     >
       {emotion}
@@ -143,7 +144,7 @@ export function BiasBar({ bias }: { bias: string }) {
         {segs.map(s => (
           <span
             key={s}
-            className="inline-block w-3 h-3 rounded-sm"
+            className="inline-block w-3.5 h-3.5 rounded-sm"
             style={{
               background: s === bias ? colors[s] : "var(--border)",
               opacity: s === bias ? 1 : 0.4,
@@ -152,7 +153,7 @@ export function BiasBar({ bias }: { bias: string }) {
         ))}
       </span>
       <span
-        className="text-xs font-medium capitalize"
+        className="text-sm font-medium capitalize"
         style={{ color: colors[bias] ?? "var(--muted-foreground)" }}
       >
         {bias ? bias[0].toUpperCase() + bias.slice(1) : "—"}
@@ -167,10 +168,10 @@ export function SubjectivityBar({ pct }: { pct: number }) {
   const color = high ? "#15803d" : med ? "#d97706" : "#dc2626";
   return (
     <span className="inline-flex items-center gap-2">
-      <span className="w-20 h-1.5 rounded-full bg-secondary overflow-hidden">
+      <span className="w-24 h-2 rounded-full bg-secondary overflow-hidden">
         <span className="block h-full rounded-full" style={{ width: `${v}%`, background: color }} />
       </span>
-      <span className="text-xs tabular-nums" style={{ color, fontFamily: "var(--font-data)" }}>
+      <span className="text-sm tabular-nums" style={{ color, fontFamily: "var(--font-data)" }}>
         {v}%
       </span>
     </span>
@@ -190,12 +191,12 @@ export function SourceBadge({
   const inner = (
     <>
       {lean && lean !== "unknown" && <LeanBadge lean={lean} />}
-      <span className="text-xs">{source}</span>
+      <span className="text-sm">{source}</span>
       {credibility?.score != null && <CredBadge score={credibility.score} />}
     </>
   );
   const cls =
-    "inline-flex items-center gap-1.5 px-2 py-1 rounded border border-border bg-card hover:bg-secondary transition-colors text-foreground shrink-0";
+    "inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-border bg-card hover:bg-secondary transition-colors text-foreground shrink-0";
   if (url && url !== "#") {
     return (
       <a href={url} target="_blank" rel="noopener noreferrer" className={cls}>
@@ -257,12 +258,12 @@ export function AnnotationLegend() {
   return (
     <div className="flex flex-wrap gap-3 mb-4">
       {items.map(item => (
-        <span key={item.label} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="inline-block w-3 h-3 rounded-sm" style={{ background: item.bg }} />
+        <span key={item.label} className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <span className="inline-block w-3.5 h-3.5 rounded-sm" style={{ background: item.bg }} />
           {item.label}
         </span>
       ))}
-      <span className="text-xs text-muted-foreground">Hover for label</span>
+      <span className="text-sm text-muted-foreground">Hover for label</span>
     </div>
   );
 }
@@ -270,7 +271,7 @@ export function AnnotationLegend() {
 export function AnnotatedText({ chunks }: { chunks: Chunk[] }) {
   if (!chunks?.length) return null;
   return (
-    <p className="leading-7 text-sm text-foreground">
+    <p className="leading-relaxed text-lg text-foreground">
       {chunks.map((chunk, i) => {
         const cat = chunkCategory(chunk);
         if (!cat) return <span key={i}>{chunk.text} </span>;
@@ -344,7 +345,7 @@ export function PageContainer({ children, narrow = false }: {
   narrow?: boolean;
 }) {
   return (
-    <div className={`mx-auto px-4 sm:px-6 py-8 ${narrow ? "max-w-3xl" : "max-w-6xl"}`}>
+    <div className={`mx-auto px-4 sm:px-6 py-8 ${narrow ? "max-w-4xl" : "max-w-6xl"}`}>
       {children}
     </div>
   );
@@ -355,7 +356,7 @@ export function PageContainer({ children, narrow = false }: {
 export function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2"
+      className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2"
     >
       {children}
     </div>

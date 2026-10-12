@@ -6,7 +6,8 @@ from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify, request
 
-from backend.db.cache import get_cached_summaries, get_cluster, is_stale, today_str
+from backend.config import CREDIBILITY_THRESHOLD
+from backend.db.cache import get_archive_day, get_cached_summaries, get_cluster, is_stale, today_str
 from backend.db.connection import get_connection
 
 articles_bp = Blueprint("articles", __name__)
@@ -86,30 +87,58 @@ def api_article_analysis():
     })
 
 
+def _topics_by_day(days: list[str], today: str) -> tuple[dict, set]:
+    """Map (day, url) -> topic id, and collect the (day, url) pairs whose
+    topic made that day's Daily Brief.
+
+    Cluster IDs are reassigned on every pipeline run and older articles are
+    unlinked from them, so each past day's grouping comes from that day's
+    snapshot; today's comes from the live clusters.
+    """
+    from backend.pipeline.summarizer import select_brief_clusters
+
+    topic_of: dict = {}
+    in_brief: set = set()
+    for day in days:
+        if day == today:
+            clusters = get_cached_summaries().get("clusters", [])
+        else:
+            clusters = (get_archive_day(day) or {}).get("clusters", [])
+        brief_ids = {str(c.get("cluster_id")) for c in select_brief_clusters(clusters)}
+        for cluster in clusters:
+            cluster_id = str(cluster.get("cluster_id"))
+            for url in cluster.get("urls") or []:
+                topic_of[(day, url)] = f"{day}:{cluster_id}"
+                if cluster_id in brief_ids:
+                    in_brief.add((day, url))
+    return topic_of, in_brief
+
+
 @articles_bp.route("/api/all-articles")
 def get_all_articles():
     today = today_str()
-    since = (datetime.now() - timedelta(days=ALL_ARTICLES_PAST_DAYS)).strftime("%Y-%m-%d")
+    now = datetime.now()
+    days = [(now - timedelta(days=n)).strftime("%Y-%m-%d") for n in range(ALL_ARTICLES_PAST_DAYS + 1)]
+    since = days[-1]
 
-    # in_summary = linked to one of today's clusters (the ones the Daily
-    # Brief is built from), so older articles never count as in the brief.
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT a.url, a.title, a.source, a.credibility_score, a.credibility_label,
-               a.bias_label, a.analysis_status, a.scraped_at,
-               k.id IS NOT NULL AS in_summary
-        FROM articles a
-        LEFT JOIN clusters k ON k.id = a.cluster_id AND date(k.updated_at) = ?
-        WHERE a.url IS NOT NULL AND a.url != ''
-          AND date(a.scraped_at) >= ?
-        ORDER BY a.scraped_at DESC
-    """, (today, since))
+        SELECT url, title, source, credibility_score, credibility_label,
+               bias_label, analysis_status, scraped_at
+        FROM articles
+        WHERE url IS NOT NULL AND url != ''
+          AND date(scraped_at) >= ?
+        ORDER BY scraped_at DESC
+    """, (since,))
     rows = cursor.fetchall()
     conn.close()
 
+    topic_of, in_brief = _topics_by_day(days, today)
+
     articles = []
     for row in rows:
+        day = (row["scraped_at"] or "")[:10]
         lean = next(
             (v for v in (row["credibility_label"], row["bias_label"])
              if v and v != "unknown"),
@@ -122,11 +151,19 @@ def get_all_articles():
             "credibility_score": row["credibility_score"],
             "lean": lean,
             "analysis_status": row["analysis_status"],
-            "in_summary": bool(row["in_summary"]),
+            # Articles sharing a topic_id cover the same story; null means
+            # the article stood alone (or failed the credibility filter).
+            "topic_id": topic_of.get((day, row["url"])),
+            "in_brief": (day, row["url"]) in in_brief,
             "scraped_at": row["scraped_at"],
         })
 
-    return jsonify({"articles": articles, "total": len(articles), "today": today})
+    return jsonify({
+        "articles": articles,
+        "total": len(articles),
+        "today": today,
+        "credibility_threshold": CREDIBILITY_THRESHOLD,
+    })
 
 
 @articles_bp.route("/api/cluster/<cluster_id>/analysis")

@@ -28,9 +28,9 @@
   color: var(--background);
   padding: 0.55rem 0.8rem;
   border-radius: 6px;
-  font-size: 0.82rem;
+  font-size: 0.9rem;
   line-height: 1.45;
-  max-width: 320px;
+  max-width: 360px;
   width: max-content;
   opacity: 0;
   visibility: hidden;

@@ -52,13 +52,13 @@ function SummaryGrid({ article, chunks, modelVersion }: { article: ArticleAnalys
       <div className="bg-secondary rounded p-4 space-y-1">
         <SectionLabel>Techniques Detected</SectionLabel>
         {techEntries.length === 0 ? (
-          <span className="text-xs text-muted-foreground">None detected</span>
+          <span className="text-sm text-muted-foreground">None detected</span>
         ) : (
           <div className="flex flex-wrap gap-1.5">
             {techEntries.slice(0, 6).map(([label, count]) => (
               <span
                 key={label}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
+                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-sm font-medium"
                 style={{ background: CAT_COLORS[chunkCategory({ techniques: [{ label, confidence: 1 }], emotion: "", bias: "", subjective: false, text: "" }) ?? "loaded"] ?? "#ffedd5", color: "#0f0e0c" }}
               >
                 {formatTechnique(label)}
@@ -71,7 +71,7 @@ function SummaryGrid({ article, chunks, modelVersion }: { article: ArticleAnalys
 
       <div className="sm:col-span-2 bg-secondary rounded p-4 space-y-1">
         <SectionLabel>Chunks analyzed</SectionLabel>
-        <span className="text-xs" style={{ fontFamily: "var(--font-data)" }}>
+        <span className="text-sm" style={{ fontFamily: "var(--font-data)" }}>
           {chunks.length} chunks{modelVersion ? ` · ${modelVersion}` : ""}
         </span>
       </div>
@@ -89,8 +89,8 @@ function ChunkCard({ chunk }: { chunk: Chunk }) {
         borderLeftColor: getEmotionColor(chunk.emotion),
       }}
     >
-      <p className="text-sm leading-relaxed text-foreground">{chunk.text}</p>
-      <div className="flex flex-wrap items-center gap-2 text-xs">
+      <p className="text-base leading-relaxed text-foreground">{chunk.text}</p>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
         <EmotionBadge emotion={chunk.emotion ?? "neutral"} />
         <BiasBar bias={chunk.bias ?? "center"} />
         <span className="text-muted-foreground">·</span>
@@ -103,7 +103,7 @@ function ChunkCard({ chunk }: { chunk: Chunk }) {
                 <span
                   key={t.label}
                   title={`Confidence: ${Math.round(t.confidence * 100)}%`}
-                  className="px-1.5 py-0.5 rounded-sm text-xs font-medium bg-secondary text-secondary-foreground"
+                  className="px-2 py-0.5 rounded-sm text-sm font-medium bg-secondary text-secondary-foreground"
                 >
                   {formatTechnique(t.label)}
                 </span>
@@ -173,17 +173,17 @@ export function AnalyzerPage() {
           style={{
             fontFamily: "var(--font-display)",
             fontWeight: 800,
-            fontSize: "2rem",
+            fontSize: "2.25rem",
             lineHeight: 1.15,
           }}
         >
           Text Analyzer
         </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <p className="mt-2 text-lg text-muted-foreground">
           Paste any article or excerpt. Politerate flags emotion, persuasion techniques,
           subjectivity, and political lean — chunk by chunk.
         </p>
-        <div className="mt-3 px-4 py-3 bg-secondary rounded border border-border text-sm">
+        <div className="mt-4 px-4 py-3 bg-secondary rounded border border-border text-base">
           <strong>Powered by multi-head DeBERTa:</strong> 18 persuasion-technique heads + 28-class
           emotion + subjectivity + 3-way bias (left / center / right).
         </div>
@@ -192,7 +192,7 @@ export function AnalyzerPage() {
       {/* Input card */}
       <div className="bg-card border border-border rounded p-6 mb-6 shadow-sm space-y-4">
         <div className="space-y-1.5">
-          <label htmlFor="analyzer-url" className="text-sm font-medium text-muted-foreground">
+          <label htmlFor="analyzer-url" className="text-base font-medium text-muted-foreground">
             Article URL{" "}
             <span className="text-muted-foreground font-normal">(optional — enables caching)</span>
           </label>
@@ -202,12 +202,12 @@ export function AnalyzerPage() {
             value={urlInput}
             onChange={e => setUrlInput(e.target.value)}
             placeholder="https://example.com/article"
-            className="w-full px-3 py-2 rounded border border-border bg-input-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:border-accent focus:ring-2 focus:ring-[var(--accent)]/20 transition-colors"
+            className="w-full px-3.5 py-2.5 rounded border border-border bg-input-background text-foreground text-base placeholder:text-muted-foreground focus:outline-none focus:border-accent focus:ring-2 focus:ring-[var(--accent)]/20 transition-colors"
           />
         </div>
 
         <div className="space-y-1.5">
-          <label htmlFor="analyzer-text" className="text-sm font-medium text-muted-foreground">
+          <label htmlFor="analyzer-text" className="text-base font-medium text-muted-foreground">
             Article text
           </label>
           <textarea
@@ -216,31 +216,31 @@ export function AnalyzerPage() {
             onChange={e => setText(e.target.value)}
             placeholder="Paste article text here…"
             rows={9}
-            className="w-full px-3 py-2 rounded border border-border bg-input-background text-foreground text-sm placeholder:text-muted-foreground resize-y focus:outline-none focus:border-accent focus:ring-2 focus:ring-[var(--accent)]/20 transition-colors"
+            className="w-full px-3.5 py-2.5 rounded border border-border bg-input-background text-foreground text-base placeholder:text-muted-foreground resize-y focus:outline-none focus:border-accent focus:ring-2 focus:ring-[var(--accent)]/20 transition-colors"
           />
-          <div className="flex items-center gap-2 text-xs text-muted-foreground" style={{ fontFamily: "var(--font-data)" }}>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground" style={{ fontFamily: "var(--font-data)" }}>
             <span>{charCount.toLocaleString()} / 50,000 chars</span>
             {tooShort && <span className="text-destructive">· minimum 50</span>}
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 pt-1">
+        <div className="flex flex-wrap gap-2.5 pt-1">
           <button
             onClick={analyze}
             disabled={loading || tooShort}
-            className="px-5 py-2 bg-primary text-primary-foreground rounded text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity"
+            className="px-6 py-2.5 bg-primary text-primary-foreground rounded text-base font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity"
           >
             {loading ? "Analyzing…" : "Analyze text"}
           </button>
           <button
             onClick={() => { setText(SAMPLE_TEXT); }}
-            className="px-4 py-2 bg-secondary text-secondary-foreground rounded text-sm font-medium hover:bg-muted transition-colors"
+            className="px-5 py-2.5 bg-secondary text-secondary-foreground rounded text-base font-medium hover:bg-muted transition-colors"
           >
             Load sample
           </button>
           <button
             onClick={() => { setText(""); setUrlInput(""); setResult(null); setError(null); }}
-            className="px-4 py-2 bg-secondary text-secondary-foreground rounded text-sm font-medium hover:bg-muted transition-colors"
+            className="px-5 py-2.5 bg-secondary text-secondary-foreground rounded text-base font-medium hover:bg-muted transition-colors"
           >
             Clear
           </button>
@@ -249,10 +249,10 @@ export function AnalyzerPage() {
 
       {/* How it works */}
       {!result && !loading && (
-        <div className="bg-secondary border border-border rounded p-5 text-sm space-y-3">
+        <div className="bg-secondary border border-border rounded p-5 text-base space-y-3">
           <h3
             className="font-semibold"
-            style={{ fontFamily: "var(--font-display)", fontSize: "1rem" }}
+            style={{ fontFamily: "var(--font-display)", fontSize: "1.25rem" }}
           >
             How this works
           </h3>
@@ -270,7 +270,7 @@ export function AnalyzerPage() {
               </li>
             ))}
           </ul>
-          <p className="text-xs text-muted-foreground border-t border-border pt-3">
+          <p className="text-sm text-muted-foreground border-t border-border pt-3">
             All analysis happens on your local model server. No data is sent to third-party services.
           </p>
         </div>
@@ -286,8 +286,8 @@ export function AnalyzerPage() {
 
       {/* Error */}
       {!loading && error && (
-        <div className="flex items-start gap-3 p-4 bg-destructive/10 border border-destructive/20 rounded text-sm">
-          <AlertCircle size={16} className="text-destructive shrink-0 mt-0.5" />
+        <div className="flex items-start gap-3 p-4 bg-destructive/10 border border-destructive/20 rounded text-base">
+          <AlertCircle size={18} className="text-destructive shrink-0 mt-0.5" />
           <span className="text-destructive">{error}</span>
         </div>
       )}
@@ -304,23 +304,23 @@ export function AnalyzerPage() {
                     style={{
                       fontFamily: "var(--font-display)",
                       fontWeight: 700,
-                      fontSize: "1.1rem",
+                      fontSize: "1.4rem",
                     }}
                   >
                     Annotated text
                     {result.cached && (
-                      <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-secondary text-muted-foreground">
+                      <span className="ml-2 align-middle text-sm font-medium px-2.5 py-0.5 rounded-full bg-secondary text-muted-foreground">
                         cached
                       </span>
                     )}
                   </h2>
-                  <p className="text-xs text-muted-foreground mt-0.5">
+                  <p className="text-sm text-muted-foreground mt-0.5">
                     Hover highlighted passages for details.
                   </p>
                 </div>
                 <button
                   onClick={() => setShowAnnotated(a => !a)}
-                  className="text-xs font-medium border border-border rounded px-3 py-1.5 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                  className="text-sm font-medium border border-border rounded px-4 py-1.5 text-muted-foreground hover:text-foreground transition-colors shrink-0"
                 >
                   {showAnnotated ? "Hide analysis" : "Show analysis"}
                 </button>
@@ -330,7 +330,7 @@ export function AnalyzerPage() {
                 {showAnnotated ? (
                   <AnnotatedText chunks={result.chunks} />
                 ) : (
-                  <p className="text-sm leading-7 text-foreground">{text}</p>
+                  <p className="text-lg leading-relaxed text-foreground">{text}</p>
                 )}
               </div>
             </div>
@@ -343,13 +343,13 @@ export function AnalyzerPage() {
                 style={{
                   fontFamily: "var(--font-display)",
                   fontWeight: 700,
-                  fontSize: "1.1rem",
+                  fontSize: "1.4rem",
                 }}
               >
                 Analysis Summary
               </h2>
               <span
-                className="text-xs text-muted-foreground"
+                className="text-sm text-muted-foreground"
                 style={{ fontFamily: "var(--font-data)" }}
               >
                 {result.chunks?.length ?? 0} chunks · {result.model_version ?? "—"}
@@ -371,12 +371,12 @@ export function AnalyzerPage() {
                   style={{
                     fontFamily: "var(--font-display)",
                     fontWeight: 700,
-                    fontSize: "1.1rem",
+                    fontSize: "1.4rem",
                   }}
                 >
                   Detailed Breakdown
                 </h2>
-                <span className="text-xs text-muted-foreground">
+                <span className="text-sm font-medium text-muted-foreground">
                   {showChunks ? "Hide" : `Show ${result.chunks.length} chunks`}
                 </span>
               </button>

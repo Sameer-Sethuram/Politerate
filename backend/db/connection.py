@@ -64,13 +64,10 @@ def init_db() -> None:
 
 
 def _apply_column_migrations(cursor) -> None:
-    """Add columns to existing articles tables that were defined in earlier
-    schemas. Non-destructive — existing rows get NULL / default values.
+    """Add columns to existing tables that were defined in earlier schemas.
+    Non-destructive — existing rows get NULL / default values.
     """
-    cursor.execute("PRAGMA table_info(articles)")
-    existing = {row[1] for row in cursor.fetchall()}
-
-    migrations = [
+    article_migrations = [
         ("url_hash",                "TEXT"),
         ("author",                  "TEXT"),
         ("published_at",            "TIMESTAMP"),
@@ -88,11 +85,17 @@ def _apply_column_migrations(cursor) -> None:
         ("summarized_at",           "TIMESTAMP"),
         ("source_type",             "TEXT DEFAULT 'scraped'"),
     ]
+    cluster_migrations = [
+        ("detailed_summary",        "TEXT"),
+    ]
 
-    for col, coltype in migrations:
-        if col not in existing:
-            try:
-                cursor.execute(f"ALTER TABLE articles ADD COLUMN {col} {coltype}")
-                logger.info(f"Added column articles.{col}")
-            except sqlite3.OperationalError as e:
-                logger.warning(f"Could not add column {col}: {e}")
+    for table, migrations in (("articles", article_migrations), ("clusters", cluster_migrations)):
+        cursor.execute(f"PRAGMA table_info({table})")
+        existing = {row[1] for row in cursor.fetchall()}
+        for col, coltype in migrations:
+            if col not in existing:
+                try:
+                    cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
+                    logger.info(f"Added column {table}.{col}")
+                except sqlite3.OperationalError as e:
+                    logger.warning(f"Could not add column {table}.{col}: {e}")

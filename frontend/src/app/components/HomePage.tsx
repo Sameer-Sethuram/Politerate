@@ -5,6 +5,7 @@ import {
   BrandIcon, Spinner, StateBox, AiBanner, SourceBadge, SectionLabel,
   getTopicIcon, formatRelativeDate,
 } from "./shared";
+import { DailyBriefCard, DailySummary } from "./DailyBrief";
 
 interface Cluster {
   cluster_id: string;
@@ -18,92 +19,9 @@ interface Cluster {
   defined_terms?: Array<{ term: string; definition: string }>;
 }
 
-interface BriefSection {
-  cluster_id: string;
-  headline: string;
-  bullets: string[];
-  article_count: number;
-}
-
-interface DailySummary {
-  sections: BriefSection[];
-  cluster_count: number;
-  total_articles: number;
-  source_count: number;
-  source_links: Array<{ source: string; url: string }>;
-}
-
 interface SummariesData {
   last_updated?: string;
   clusters: Cluster[];
-}
-
-function StatPill({ value, label }: { value: number; label: string }) {
-  return (
-    <span
-      className="inline-flex items-center gap-1 px-3 py-1 rounded bg-secondary text-secondary-foreground text-xs"
-      style={{ fontFamily: "var(--font-data)" }}
-    >
-      <strong>{value}</strong>&nbsp;{label}
-    </span>
-  );
-}
-
-function DailyBriefCard({ data }: { data: DailySummary }) {
-  return (
-    <article className="bg-card border border-border rounded p-6 sm:p-8 shadow-sm">
-      <header className="flex flex-wrap items-start justify-between gap-4 pb-5 mb-5 border-b border-border">
-        <h2
-          style={{
-            fontFamily: "var(--font-display)",
-            fontWeight: 700,
-            fontSize: "1.5rem",
-            lineHeight: 1.2,
-          }}
-        >
-          Today's Political Brief
-        </h2>
-        <div className="flex flex-wrap gap-2">
-          <StatPill value={data.cluster_count} label="topics" />
-          <StatPill value={data.total_articles} label="articles" />
-          <StatPill value={data.source_count} label="sources" />
-        </div>
-      </header>
-
-      <div className="space-y-6 mb-6">
-        {data.sections.map(s => (
-          <section key={s.cluster_id}>
-            <h3 className="flex items-start gap-2 mb-2">
-              <span className="text-lg leading-none mt-0.5 shrink-0">{getTopicIcon(s.bullets.join(" "))}</span>
-              <Link
-                to={`/cluster/${encodeURIComponent(s.cluster_id)}`}
-                className="hover:underline decoration-[var(--accent)] underline-offset-2"
-                style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: "1.05rem", lineHeight: 1.35 }}
-              >
-                {s.headline.length > 110 ? s.headline.slice(0, 110) + "…" : s.headline}
-              </Link>
-            </h3>
-            <ul className="list-disc pl-11 space-y-1.5 text-base text-foreground leading-relaxed marker:text-muted-foreground">
-              {s.bullets.map((b, i) => (
-                <li key={i} dangerouslySetInnerHTML={{ __html: b }} />
-              ))}
-            </ul>
-          </section>
-        ))}
-      </div>
-
-      {data.source_links?.length > 0 && (
-        <div className="pt-4 border-t border-border space-y-2">
-          <SectionLabel>Sources</SectionLabel>
-          <div className="flex flex-wrap gap-1.5">
-            {data.source_links.map((s, i) => (
-              <SourceBadge key={i} source={s.source} url={s.url} />
-            ))}
-          </div>
-        </div>
-      )}
-    </article>
-  );
 }
 
 function ClusterCard({ cluster }: { cluster: Cluster }) {
@@ -123,15 +41,15 @@ function ClusterCard({ cluster }: { cluster: Cluster }) {
             style={{
               fontFamily: "var(--font-display)",
               fontWeight: 600,
-              fontSize: "1rem",
-              lineHeight: 1.35,
+              fontSize: "1.2rem",
+              lineHeight: 1.3,
               color: "var(--foreground)",
             }}
           >
             {title.length > 90 ? title.slice(0, 90) + "…" : title}
           </Link>
           <span
-            className="mt-1 block text-xs text-muted-foreground"
+            className="mt-1 block text-sm text-muted-foreground"
             style={{ fontFamily: "var(--font-data)" }}
           >
             {cluster.article_count} article{cluster.article_count !== 1 ? "s" : ""}
@@ -141,7 +59,7 @@ function ClusterCard({ cluster }: { cluster: Cluster }) {
 
       {/* Summary */}
       <div
-        className="px-5 pb-4 text-sm text-foreground leading-relaxed flex-1 [&_mark]:bg-yellow-100 [&_mark]:rounded-sm [&_mark]:px-0.5"
+        className="px-5 pb-4 text-base text-foreground leading-relaxed flex-1 [&_mark]:bg-yellow-100 [&_mark]:rounded-sm [&_mark]:px-0.5"
         dangerouslySetInnerHTML={{ __html: cluster.highlighted_summary || cluster.summary }}
       />
 
@@ -170,7 +88,7 @@ function ClusterCard({ cluster }: { cluster: Cluster }) {
               <span
                 key={t.term}
                 title={t.definition}
-                className="cursor-help inline-flex px-2 py-0.5 rounded-sm text-xs font-medium bg-secondary text-secondary-foreground border border-border"
+                className="cursor-help inline-flex px-2 py-0.5 rounded-sm text-sm font-medium bg-secondary text-secondary-foreground border border-border"
               >
                 {t.term}
               </span>
@@ -183,7 +101,7 @@ function ClusterCard({ cluster }: { cluster: Cluster }) {
       <div className="px-5 py-3 border-t border-border text-right">
         <Link
           to={detailUrl}
-          className="text-sm font-medium hover:underline"
+          className="text-base font-medium hover:underline"
           style={{ color: "var(--accent)" }}
         >
           Full breakdown →
@@ -231,7 +149,7 @@ export function HomePage() {
 
       {/* Hero */}
       <div className="border-b border-border bg-card">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-12 text-center">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 text-center">
           <h1
             className="flex items-center justify-center gap-3 sm:gap-4 tracking-tight text-brand-dark"
             style={{
@@ -247,10 +165,10 @@ export function HomePage() {
               Po<span className="text-brand-accent">literate</span>
             </span>
           </h1>
-          <p className="mt-3 text-xs tracking-[0.2em] uppercase text-muted-foreground">
+          <p className="mt-3 text-sm tracking-[0.2em] uppercase text-muted-foreground">
             Multi-Source&nbsp;&nbsp;·&nbsp;&nbsp;Unbiased&nbsp;&nbsp;·&nbsp;&nbsp;Political News
           </p>
-          <p className="mt-4 max-w-lg mx-auto text-muted-foreground text-sm leading-relaxed">
+          <p className="mt-4 max-w-2xl mx-auto text-muted-foreground text-lg leading-relaxed">
             Today's political news, summarized across trusted outlets with key terms highlighted
             and sources one click away.
           </p>
@@ -265,7 +183,7 @@ export function HomePage() {
               key={v}
               onClick={() => setView(v)}
               className={[
-                "px-4 py-1.5 rounded text-sm font-medium transition-colors capitalize",
+                "px-5 py-2 rounded text-base font-medium transition-colors capitalize",
                 view === v
                   ? "bg-card text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
@@ -278,7 +196,7 @@ export function HomePage() {
 
         {summaries?.last_updated && (
           <span
-            className="text-xs text-muted-foreground"
+            className="text-sm text-muted-foreground"
             style={{ fontFamily: "var(--font-data)" }}
           >
             Updated {formatRelativeDate(summaries.last_updated)}
@@ -301,9 +219,9 @@ export function HomePage() {
             <p className="text-destructive font-medium">Unable to load: {error}</p>
             <button
               onClick={load}
-              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-medium hover:opacity-90 transition-opacity"
+              className="flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded text-base font-medium hover:opacity-90 transition-opacity"
             >
-              <RefreshCw size={14} /> Try Again
+              <RefreshCw size={16} /> Try Again
             </button>
           </StateBox>
         )}
@@ -313,9 +231,9 @@ export function HomePage() {
             <p>No summaries available yet. Check back soon.</p>
             <button
               onClick={load}
-              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-medium hover:opacity-90"
+              className="flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded text-base font-medium hover:opacity-90"
             >
-              <RefreshCw size={14} /> Refresh
+              <RefreshCw size={16} /> Refresh
             </button>
           </StateBox>
         )}
@@ -324,7 +242,7 @@ export function HomePage() {
           <>
             {view === "daily" && daily && !noBrief && <DailyBriefCard data={daily} />}
             {view === "topics" && summaries && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                 {summaries.clusters.map(c => (
                   <ClusterCard key={c.cluster_id} cluster={c} />
                 ))}

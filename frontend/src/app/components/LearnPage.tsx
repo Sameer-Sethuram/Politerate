@@ -86,7 +86,7 @@ function TermOfDayCard({ term, loading }: { term: TermOfDay | null; loading: boo
     return (
       <div className="bg-card border border-border rounded p-6 shadow-sm">
         <SectionLabel>Term of the Day</SectionLabel>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-base text-muted-foreground">
           Come back once today's news has loaded.
         </p>
       </div>
@@ -101,7 +101,7 @@ function TermOfDayCard({ term, loading }: { term: TermOfDay | null; loading: boo
           style={{
             fontFamily: "var(--font-display)",
             fontWeight: 800,
-            fontSize: "1.9rem",
+            fontSize: "2.35rem",
             lineHeight: 1.1,
             letterSpacing: "-0.02em",
           }}
@@ -109,28 +109,28 @@ function TermOfDayCard({ term, loading }: { term: TermOfDay | null; loading: boo
           {term.term}
           {term.in_news && (
             <span
-              className="ml-2 align-middle inline-flex px-2 py-0.5 rounded-full text-xs font-semibold"
-              style={{ background: "var(--accent)", color: "#fff", fontSize: "0.7rem" }}
+              className="ml-3 align-middle inline-flex px-2.5 py-0.5 rounded-full text-sm font-semibold tracking-normal"
+              style={{ background: "var(--accent)", color: "#fff" }}
             >
               In today's news
             </span>
           )}
         </h2>
         {term.category && (
-          <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-secondary text-muted-foreground">
+          <span className="inline-flex px-2.5 py-0.5 rounded-full text-sm font-medium bg-secondary text-muted-foreground">
             {term.category}
           </span>
         )}
       </div>
-      <p className="text-sm text-foreground leading-relaxed">{term.definition}</p>
+      <p className="text-lg text-foreground leading-relaxed">{term.definition}</p>
       {term.article_snippets?.map((s, i) => (
         <blockquote
           key={i}
-          className="border-l-2 pl-4 py-1 bg-secondary rounded-r text-sm italic text-foreground"
+          className="border-l-2 pl-4 py-1.5 bg-secondary rounded-r text-base italic text-foreground"
           style={{ borderLeftColor: "var(--accent)" }}
         >
           "{s.snippet}"
-          <footer className="mt-1 text-xs text-muted-foreground not-italic">
+          <footer className="mt-1 text-sm text-muted-foreground not-italic">
             —{" "}
             <a
               href={s.url}
@@ -208,7 +208,7 @@ function QuizCard({ streak, onStreak }: { streak: number; onStreak: (n: number) 
     return (
       <div className="bg-card border border-border rounded p-6 shadow-sm">
         <SectionLabel>Quick Quiz</SectionLabel>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-base text-muted-foreground">
           No quiz available yet. Try refreshing once today's news has loaded.
         </p>
       </div>
@@ -236,7 +236,7 @@ function QuizCard({ streak, onStreak }: { streak: number; onStreak: (n: number) 
           style={{
             fontFamily: "var(--font-display)",
             fontWeight: 800,
-            fontSize: "3.5rem",
+            fontSize: "4rem",
             lineHeight: 1,
             color: "var(--accent)",
             letterSpacing: "-0.02em",
@@ -244,13 +244,13 @@ function QuizCard({ streak, onStreak }: { streak: number; onStreak: (n: number) 
         >
           {state.score}/{total}
         </div>
-        <p className="text-sm text-muted-foreground">{message}</p>
+        <p className="text-lg text-muted-foreground">{message}</p>
 
-        <div className="bg-secondary rounded p-4 text-left space-y-2">
+        <div className="bg-secondary rounded p-5 text-left space-y-2">
           <SectionLabel>Recap</SectionLabel>
           <ul className="space-y-2">
             {state.answers.map((a, i) => (
-              <li key={i} className="text-sm flex gap-2 items-start pb-2 border-b border-border last:border-0">
+              <li key={i} className="text-base flex gap-2 items-start pb-2 border-b border-border last:border-0">
                 <span
                   className="font-bold shrink-0 mt-0.5"
                   style={{ color: a.correct ? "#15803d" : "var(--destructive)" }}
@@ -271,19 +271,19 @@ function QuizCard({ streak, onStreak }: { streak: number; onStreak: (n: number) 
         <div className="flex justify-center gap-3 flex-wrap">
           <button
             onClick={startQuiz}
-            className="px-5 py-2 bg-primary text-primary-foreground rounded text-sm font-semibold hover:opacity-90 transition-opacity"
+            className="px-6 py-2.5 bg-primary text-primary-foreground rounded text-base font-semibold hover:opacity-90 transition-opacity"
           >
             Play again
           </button>
           <Link
             to="/glossary"
-            className="px-5 py-2 bg-secondary text-secondary-foreground rounded text-sm font-medium hover:bg-muted transition-colors"
+            className="px-6 py-2.5 bg-secondary text-secondary-foreground rounded text-base font-medium hover:bg-muted transition-colors"
           >
             Browse glossary
           </Link>
         </div>
         <p
-          className="text-xs text-muted-foreground"
+          className="text-sm text-muted-foreground"
           style={{ fontFamily: "var(--font-data)" }}
         >
           Day streak: {streak} · Best score: {Math.max(prevHigh, pct)}%
@@ -305,14 +305,14 @@ function QuizCard({ streak, onStreak }: { streak: number; onStreak: (n: number) 
             style={{
               fontFamily: "var(--font-display)",
               fontWeight: 700,
-              fontSize: "1.15rem",
+              fontSize: "1.45rem",
             }}
           >
             Test Your Political Literacy
           </h2>
         </div>
         <span
-          className="shrink-0 px-3 py-1 rounded-full bg-secondary text-muted-foreground text-xs font-semibold"
+          className="shrink-0 px-3.5 py-1.5 rounded-full bg-secondary text-muted-foreground text-sm font-semibold"
           style={{ fontFamily: "var(--font-data)" }}
         >
           {state.index + 1}/{state.questions.length} · Score {state.score}
@@ -321,11 +321,11 @@ function QuizCard({ streak, onStreak }: { streak: number; onStreak: (n: number) 
 
       {q.article_snippet && (
         <blockquote
-          className="border-l-2 pl-4 py-1 bg-secondary rounded-r text-sm italic"
+          className="border-l-2 pl-4 py-1.5 bg-secondary rounded-r text-base italic"
           style={{ borderLeftColor: "var(--accent)" }}
         >
           "{q.article_snippet.snippet}"
-          <footer className="text-xs text-muted-foreground not-italic mt-1">
+          <footer className="text-sm text-muted-foreground not-italic mt-1">
             —{" "}
             <a href={q.article_snippet.url} target="_blank" rel="noopener" className="hover:underline" style={{ color: "var(--accent)" }}>
               {q.article_snippet.source}
@@ -334,11 +334,11 @@ function QuizCard({ streak, onStreak }: { streak: number; onStreak: (n: number) 
         </blockquote>
       )}
 
-      <p className="text-sm leading-relaxed whitespace-pre-line">{q.prompt}</p>
+      <p className="text-lg leading-relaxed whitespace-pre-line">{q.prompt}</p>
 
-      <div className="space-y-2">
+      <div className="space-y-2.5">
         {q.options.map((opt, i) => {
-          let cls = "w-full text-left px-4 py-3 rounded border text-sm transition-colors ";
+          let cls = "w-full text-left px-5 py-3.5 rounded border text-base transition-colors ";
           if (!answered) {
             cls += "border-border bg-card hover:border-[var(--accent)] hover:bg-secondary";
           } else if (i === correctIdx) {
@@ -362,7 +362,7 @@ function QuizCard({ streak, onStreak }: { streak: number; onStreak: (n: number) 
       </div>
 
       {answered && lastAnswer && (
-        <div className="p-4 bg-secondary rounded text-sm">
+        <div className="p-4 bg-secondary rounded text-base">
           <strong style={{ color: lastAnswer.correct ? "#15803d" : "var(--destructive)" }}>
             {lastAnswer.correct ? "Correct!" : "Not quite."}
           </strong>{" "}
@@ -374,7 +374,7 @@ function QuizCard({ streak, onStreak }: { streak: number; onStreak: (n: number) 
         <div className="flex justify-end">
           <button
             onClick={next}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-semibold hover:opacity-90 transition-opacity"
+            className="px-6 py-2.5 bg-primary text-primary-foreground rounded text-base font-semibold hover:opacity-90 transition-opacity"
           >
             {state.index === state.questions.length - 1 ? "See results →" : "Next question →"}
           </button>
@@ -411,19 +411,19 @@ export function LearnPage() {
             style={{
               fontFamily: "var(--font-display)",
               fontWeight: 800,
-              fontSize: "2rem",
+              fontSize: "2.25rem",
               lineHeight: 1.15,
             }}
           >
             Learn Political Literacy
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">Grounded in today's headlines.</p>
+          <p className="mt-2 text-lg text-muted-foreground">Grounded in today's headlines.</p>
         </div>
         <span
-          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary border border-border text-sm font-semibold"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-secondary border border-border text-base font-semibold"
           style={{ color: "var(--accent)" }}
         >
-          <Flame size={14} />
+          <Flame size={18} />
           {streak}-day streak
         </span>
       </div>

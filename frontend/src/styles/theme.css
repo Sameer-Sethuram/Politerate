@@ -3,7 +3,7 @@
 :root {
   /* Alegreya has a small x-height, so the root size is bumped from 16px
      to keep body copy and text-sm UI legible. */
-  --font-size: 17px;
+  --font-size: 18px;
   --font-display: 'Alegreya', Georgia, serif;
   --font-sans: 'Alegreya', Georgia, serif;
   --font-data: 'Alegreya', Georgia, serif;

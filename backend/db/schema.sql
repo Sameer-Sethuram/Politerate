@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS articles (
     analyzed_at TIMESTAMP,
     analysis_status TEXT DEFAULT 'pending',
 
-    -- Per-article BART summary (for future phase)
+    -- Per-article BART summary; cluster summaries are built from these
     summary TEXT,
     summary_model_version TEXT,
     summarized_at TIMESTAMP,
@@ -60,6 +60,9 @@ CREATE TABLE IF NOT EXISTS clusters (
     id TEXT PRIMARY KEY,
     summary TEXT,
     highlighted_summary TEXT,
+    -- JSON {overview, overview_html,
+    --       details: [{text, html, source, url, also_reported_by}]}
+    detailed_summary TEXT,
     sources TEXT,
     urls TEXT,
     titles TEXT,

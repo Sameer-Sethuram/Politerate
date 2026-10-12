@@ -6,9 +6,9 @@ import { BrandIcon } from "./shared";
 const NAV_LINKS = [
   { to: "/",             label: "Today",    end: true  },
   { to: "/all-articles", label: "Articles", end: false },
+  { to: "/archive",      label: "Archive",  end: false },
   { to: "/learn",        label: "Learn",    end: false },
   { to: "/analyzer",     label: "Analyzer", end: false },
-  { to: "/archive",      label: "Archive",  end: false },
   { to: "/glossary",     label: "Glossary", end: false },
 ];
 
@@ -19,19 +19,19 @@ export function Layout() {
     <div className="min-h-screen flex flex-col bg-background">
       {/* Top bar */}
       <header className="sticky top-0 z-50 bg-card border-b border-border shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-6">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-6">
           {/* Logo */}
           <NavLink
             to="/"
-            className="flex items-center gap-2 shrink-0 text-brand-dark hover:opacity-80 transition-opacity"
+            className="flex items-center gap-2.5 shrink-0 text-brand-dark hover:opacity-80 transition-opacity"
           >
-            <BrandIcon size={28} />
+            <BrandIcon size={36} />
             <span
               className="tracking-tight"
               style={{
                 fontFamily: "var(--font-display)",
                 fontWeight: 800,
-                fontSize: "1.35rem",
+                fontSize: "1.65rem",
                 letterSpacing: "-0.01em",
               }}
             >
@@ -39,8 +39,9 @@ export function Layout() {
             </span>
           </NavLink>
 
-          {/* Desktop nav */}
-          <nav className="hidden md:flex items-center gap-0.5" aria-label="Primary">
+          {/* Desktop nav: links span the full bar height so the active
+              underline sits on the header's bottom border, like a tab. */}
+          <nav className="hidden md:flex self-stretch items-stretch gap-1" aria-label="Primary">
             {NAV_LINKS.map(link => (
               <NavLink
                 key={link.to}
@@ -48,10 +49,10 @@ export function Layout() {
                 end={link.end}
                 className={({ isActive }) =>
                   [
-                    "px-3 py-1 text-sm rounded transition-colors relative",
+                    "flex items-center px-3 lg:px-4 text-base transition-colors relative",
                     isActive
-                      ? "text-foreground font-medium"
-                      : "text-muted-foreground hover:text-foreground",
+                      ? "text-foreground font-semibold"
+                      : "text-muted-foreground hover:text-foreground hover:bg-secondary/60",
                   ].join(" ")
                 }
               >
@@ -60,7 +61,7 @@ export function Layout() {
                     {link.label}
                     {isActive && (
                       <span
-                        className="absolute bottom-0 left-3 right-3 h-0.5 rounded-full"
+                        className="absolute bottom-0 left-3 right-3 lg:left-4 lg:right-4 h-[3px] rounded-t-full"
                         style={{ background: "var(--accent)" }}
                       />
                     )}
@@ -72,11 +73,11 @@ export function Layout() {
 
           {/* Mobile button */}
           <button
-            className="md:hidden p-1.5 text-muted-foreground hover:text-foreground transition-colors"
+            className="md:hidden p-2 text-muted-foreground hover:text-foreground transition-colors"
             onClick={() => setOpen(o => !o)}
             aria-label="Toggle menu"
           >
-            {open ? <X size={20} /> : <Menu size={20} />}
+            {open ? <X size={26} /> : <Menu size={26} />}
           </button>
         </div>
 
@@ -86,7 +87,7 @@ export function Layout() {
             className="md:hidden border-t border-border bg-card"
             aria-label="Mobile navigation"
           >
-            <div className="max-w-6xl mx-auto px-4 py-3 flex flex-col gap-0.5">
+            <div className="max-w-6xl mx-auto px-4 py-3 flex flex-col gap-1">
               {NAV_LINKS.map(link => (
                 <NavLink
                   key={link.to}
@@ -95,7 +96,7 @@ export function Layout() {
                   onClick={() => setOpen(false)}
                   className={({ isActive }) =>
                     [
-                      "px-3 py-2 text-sm rounded transition-colors",
+                      "px-4 py-3 text-lg rounded transition-colors",
                       isActive
                         ? "bg-secondary text-foreground font-medium"
                         : "text-muted-foreground hover:text-foreground hover:bg-secondary",
@@ -116,10 +117,10 @@ export function Layout() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-border py-8 mt-16 text-sm text-muted-foreground">
+      <footer className="border-t border-border py-8 mt-16 text-base text-muted-foreground">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <BrandIcon size={16} />
+            <BrandIcon size={20} />
             <span style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}>Politerate</span>
             <span>— multi-source, unbiased political news.</span>
           </div>
