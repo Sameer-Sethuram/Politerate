@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { RefreshCw, AlertCircle } from "lucide-react";
 import {
   BrandIcon, Spinner, StateBox, AiBanner, SourceBadge, SectionLabel,
-  getTopicIcon, formatRelativeDate,
+  getTopicIcon, formatRelativeDate, Region, RegionTag,
 } from "./shared";
 import { DailyBriefCard, DailySummary } from "./DailyBrief";
 
@@ -17,6 +17,7 @@ interface Cluster {
   article_count: number;
   source_credibility?: Array<{ score: number | null; label: string }>;
   defined_terms?: Array<{ term: string; definition: string }>;
+  region?: Region | null;
 }
 
 interface SummariesData {
@@ -37,21 +38,21 @@ function ClusterCard({ cluster }: { cluster: Cluster }) {
         <div className="min-w-0 flex-1">
           <Link
             to={detailUrl}
-            className="block hover:underline decoration-[var(--accent)] underline-offset-2 transition-colors"
+            className="block link"
             style={{
               fontFamily: "var(--font-display)",
               fontWeight: 600,
               fontSize: "1.2rem",
               lineHeight: 1.3,
-              color: "var(--foreground)",
             }}
           >
             {title.length > 90 ? title.slice(0, 90) + "…" : title}
           </Link>
           <span
-            className="mt-1 block text-sm text-muted-foreground"
+            className="mt-1.5 flex items-center gap-2 text-sm text-muted-foreground"
             style={{ fontFamily: "var(--font-data)" }}
           >
+            {cluster.region && <RegionTag region={cluster.region} />}
             {cluster.article_count} article{cluster.article_count !== 1 ? "s" : ""}
           </span>
         </div>
@@ -101,7 +102,7 @@ function ClusterCard({ cluster }: { cluster: Cluster }) {
       <div className="px-5 py-3 border-t border-border text-right">
         <Link
           to={detailUrl}
-          className="text-base font-medium hover:underline"
+          className="text-base font-medium link"
           style={{ color: "var(--accent)" }}
         >
           Full breakdown →

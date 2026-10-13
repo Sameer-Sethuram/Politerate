@@ -48,7 +48,7 @@ function TermCard({ term, index }: { term: GlossaryTerm; index: number }) {
           <>
             <button
               onClick={() => setShowSources(s => !s)}
-              className="flex items-center gap-1.5 text-sm font-medium hover:underline"
+              className="flex items-center gap-1.5 text-sm font-medium link"
               style={{ color: "var(--accent)" }}
             >
               {showSources ? (
@@ -68,7 +68,7 @@ function TermCard({ term, index }: { term: GlossaryTerm; index: number }) {
                       href={link.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="shrink-0 text-sm font-semibold hover:underline"
+                      className="shrink-0 text-sm font-semibold link"
                       style={{ color: "var(--accent)" }}
                     >
                       Read →

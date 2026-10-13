@@ -53,7 +53,7 @@ def api_article_analysis():
     cursor.execute("""
         SELECT url, title, source, text, credibility_score, credibility_label,
                analysis_json, article_json, bias_label, dominant_emotion,
-               subjectivity_ratio, analysis_status, analyzed_at
+               subjectivity_ratio, analysis_status, analyzed_at, region
         FROM articles WHERE url = ?
     """, (url,))
     row = cursor.fetchone()
@@ -81,6 +81,7 @@ def api_article_analysis():
         "subjectivity_ratio": row["subjectivity_ratio"],
         "analysis_status": row["analysis_status"],
         "analyzed_at": row["analyzed_at"],
+        "region": row["region"],
         "chunks": _parse(row["analysis_json"]),
         "article_summary": _parse(row["article_json"]),
         "text": row["text"],
@@ -121,14 +122,16 @@ def get_all_articles():
     days = [(now - timedelta(days=n)).strftime("%Y-%m-%d") for n in range(ALL_ARTICLES_PAST_DAYS + 1)]
     since = days[-1]
 
+    # Plain string comparison (not date()) so idx_articles_scraped_at applies;
+    # scraped_at is ISO-formatted, so "YYYY-MM-DDT..." >= "YYYY-MM-DD" works.
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
         SELECT url, title, source, credibility_score, credibility_label,
-               bias_label, analysis_status, scraped_at
+               bias_label, analysis_status, scraped_at, region
         FROM articles
         WHERE url IS NOT NULL AND url != ''
-          AND date(scraped_at) >= ?
+          AND scraped_at >= ?
         ORDER BY scraped_at DESC
     """, (since,))
     rows = cursor.fetchall()
@@ -155,6 +158,8 @@ def get_all_articles():
             # the article stood alone (or failed the credibility filter).
             "topic_id": topic_of.get((day, row["url"])),
             "in_brief": (day, row["url"]) in in_brief,
+            # "us" / "world"; null for articles stored before regions existed
+            "region": row["region"],
             "scraped_at": row["scraped_at"],
         })
 

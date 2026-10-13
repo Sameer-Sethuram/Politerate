@@ -1,4 +1,5 @@
 import React from "react";
+import { Earth, Landmark } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -64,6 +65,35 @@ export function AiBanner() {
     <div className="bg-secondary border-b border-border text-center py-2.5 px-4 text-sm text-muted-foreground">
       ⚠ Summaries on this page are AI-generated — verify against linked sources before sharing.
     </div>
+  );
+}
+
+// ─── Region ───────────────────────────────────────────────────────────────────
+
+/** "us" / "world", from the feed an article came from. Older data has none. */
+export type Region = "us" | "world";
+
+export const REGIONS: Array<{ region: Region; label: string; heading: string }> = [
+  { region: "us", label: "U.S.", heading: "U.S. News" },
+  { region: "world", label: "World", heading: "World News" },
+];
+
+export function RegionIcon({ region, size = 14 }: { region: Region; size?: number }) {
+  const Icon = region === "world" ? Earth : Landmark;
+  return <Icon size={size} aria-hidden="true" className="shrink-0" />;
+}
+
+/** Neutral colors on purpose: blue/green/red already mean political lean. */
+export function RegionTag({ region, className = "" }: { region: Region; className?: string }) {
+  const label = REGIONS.find(r => r.region === region)?.label ?? region;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-1.5 py-px rounded-sm border border-border bg-secondary text-secondary-foreground text-xs font-semibold uppercase tracking-wide whitespace-nowrap ${className}`}
+      title={region === "world" ? "World news" : "U.S. news"}
+    >
+      <RegionIcon region={region} size={12} />
+      {label}
+    </span>
   );
 }
 
@@ -188,18 +218,34 @@ export function SourceBadge({
   credibility?: CredibilityData;
   lean?: string;
 }) {
+  const isLink = !!url && url !== "#";
   const inner = (
     <>
       {lean && lean !== "unknown" && <LeanBadge lean={lean} />}
-      <span className="text-sm">{source}</span>
+      {/* Only the outlet name is underlined: the lean/credibility chips
+          inside a linked badge aren't text links themselves. */}
+      <span
+        className={
+          isLink
+            ? "text-sm link group-hover:text-brand-accent group-hover:decoration-[var(--accent)]"
+            : "text-sm"
+        }
+      >
+        {source}
+      </span>
       {credibility?.score != null && <CredBadge score={credibility.score} />}
     </>
   );
   const cls =
-    "inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-border bg-card hover:bg-secondary transition-colors text-foreground shrink-0";
-  if (url && url !== "#") {
+    "inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-border bg-card transition-colors text-foreground shrink-0";
+  if (isLink) {
     return (
-      <a href={url} target="_blank" rel="noopener noreferrer" className={cls}>
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`${cls} group hover:border-[var(--accent)]`}
+      >
         {inner}
       </a>
     );
@@ -340,12 +386,20 @@ export function Card({
 
 // ─── Page shell ───────────────────────────────────────────────────────────────
 
-export function PageContainer({ children, narrow = false }: {
+// Page widths. Layout's header/footer use the same values so their edges
+// line up with the page content.
+export const DEFAULT_WIDTH = "max-w-6xl";
+// Near full-bleed, for dense grids like All Articles.
+export const WIDE_WIDTH = "max-w-[120rem]";
+
+export function PageContainer({ children, narrow = false, wide = false }: {
   children: React.ReactNode;
   narrow?: boolean;
+  wide?: boolean;
 }) {
+  const maxWidth = narrow ? "max-w-4xl" : wide ? WIDE_WIDTH : DEFAULT_WIDTH;
   return (
-    <div className={`mx-auto px-4 sm:px-6 py-8 ${narrow ? "max-w-4xl" : "max-w-6xl"}`}>
+    <div className={`mx-auto px-4 sm:px-6 py-8 ${maxWidth}`}>
       {children}
     </div>
   );

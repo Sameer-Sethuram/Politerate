@@ -13,7 +13,7 @@ import re
 import sqlite3
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from backend.config import CACHE_MAX_AGE_HOURS
@@ -31,23 +31,28 @@ logger = logging.getLogger(__name__)
 # trust. These helpers re-derive the source label from the URL hostname so
 # every cluster card renders the correct source for each link.
 # ---------------------------------------------------------------------------
+# Labels match rss_scraper.FEEDS. Since 2026-10-13 they name the outlet
+# rather than one section ("BBC", not "BBC US Politics"), as outlets now have
+# U.S. and world feeds; older snapshots' section labels get repaired to these.
 _SOURCE_PATTERNS: list[tuple[re.Pattern, str]] = [
-    # NYPost has two RSS feeds split by URL section. Politics feed pulls from
-    # /politics/ and /business/; everything else falls under US News.
-    (re.compile(r"nypost\.com/.+/(politics|business)/", re.IGNORECASE), "NYPost - Politics"),
-    (re.compile(r"nypost\.com",                          re.IGNORECASE), "NYPost - US News"),
+    (re.compile(r"nypost\.com",                          re.IGNORECASE), "NY Post"),
     (re.compile(r"foxnews\.com",                         re.IGNORECASE), "Fox"),
     (re.compile(r"nbcnews\.com",                         re.IGNORECASE), "NBC"),
     (re.compile(r"cbsnews\.com",                         re.IGNORECASE), "CBS"),
     (re.compile(r"abcnews\.(?:com|go\.com)",             re.IGNORECASE), "ABC"),
     (re.compile(r"theguardian\.com",                     re.IGNORECASE), "Guardian"),
-    (re.compile(r"apnews\.com",                          re.IGNORECASE), "AP News"),
-    # Expanded sources (2026-05-08)
-    (re.compile(r"cnn\.com",                             re.IGNORECASE), "CNN Politics"),
+    (re.compile(r"cnn\.com",                             re.IGNORECASE), "CNN"),
     (re.compile(r"thehill\.com",                         re.IGNORECASE), "The Hill"),
     (re.compile(r"pbs\.org",                             re.IGNORECASE), "PBS NewsHour"),
-    (re.compile(r"bbc\.(?:com|co\.uk)",                  re.IGNORECASE), "BBC US Politics"),
-    (re.compile(r"npr\.org",                             re.IGNORECASE), "NPR Politics"),
+    (re.compile(r"bbc\.(?:com|co\.uk)",                  re.IGNORECASE), "BBC"),
+    (re.compile(r"npr\.org",                             re.IGNORECASE), "NPR"),
+    (re.compile(r"upi\.com",                             re.IGNORECASE), "UPI"),
+    (re.compile(r"csmonitor\.com",                       re.IGNORECASE), "CS Monitor"),
+    (re.compile(r"deseret\.com",                         re.IGNORECASE), "Deseret News"),
+    (re.compile(r"independent\.co\.uk",                  re.IGNORECASE), "The Independent"),
+    (re.compile(r"aljazeera\.com",                       re.IGNORECASE), "Al Jazeera"),
+    # No longer fetched, but archived snapshots still hold their articles.
+    (re.compile(r"apnews\.com",                          re.IGNORECASE), "AP News"),
     (re.compile(r"politico\.com",                        re.IGNORECASE), "Politico"),
     (re.compile(r"washingtonexaminer\.com",              re.IGNORECASE), "Washington Examiner"),
 ]
@@ -70,10 +75,6 @@ def _source_matches_url(source: str, url: str) -> bool:
     if derived == "Unknown":
         # Hostname unrecognized — give the stored value the benefit of doubt.
         return True
-    if "nypost.com" in (url or "").lower():
-        # Both NYPost feeds are valid for any nypost URL; only fail if the
-        # stored label isn't a NYPost variant at all.
-        return source.startswith("NYPost")
     return source == derived
 
 
@@ -183,9 +184,9 @@ def _cluster_is_good(cluster: dict) -> bool:
 def save_unclustered_articles(articles: list[dict]) -> int:
     """Persist articles that didn't make it into a named cluster.
 
-    On conflict only scraped_at is refreshed, so a previously-clustered
-    article is never demoted (its cluster_id stays intact) but still counts
-    as seen today on the All Articles page.
+    On conflict only scraped_at, source and region are refreshed, so a
+    previously-clustered article is never demoted (its cluster_id stays
+    intact) but still counts as seen today on the All Articles page.
     Each article may carry a 'cluster_id' key set by the caller (e.g.
     'singleton_<hash>' for singletons, or absent for credibility failures).
     """
@@ -206,9 +207,12 @@ def save_unclustered_articles(articles: list[dict]) -> int:
                 INSERT INTO articles
                 (url, title, source, text, credibility_score, credibility_label, cluster_id, scraped_at,
                  analysis_json, article_json, bias_label, dominant_emotion, subjectivity_ratio,
-                 analysis_status, analyzed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(url) DO UPDATE SET scraped_at = excluded.scraped_at
+                 analysis_status, analyzed_at, region)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(url) DO UPDATE SET
+                    scraped_at = excluded.scraped_at,
+                    source = excluded.source,
+                    region = COALESCE(excluded.region, articles.region)
             """, (
                 article.get("url", ""),
                 article.get("title", ""),
@@ -225,6 +229,7 @@ def save_unclustered_articles(articles: list[dict]) -> int:
                 article_agg.get("subjectivity_ratio"),
                 "done" if has_analysis else "pending",
                 now if has_analysis else None,
+                article.get("region"),
             ))
             saved += 1
         except Exception as e:
@@ -276,8 +281,8 @@ def save_clusters(clusters: list[dict]) -> int:
         cursor.execute("""
             INSERT OR REPLACE INTO clusters
             (id, summary, highlighted_summary, detailed_summary, sources, urls, titles, terms,
-             article_count, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             article_count, updated_at, region)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             str(cluster.get("cluster_id", "")),
             cluster.get("summary", ""),
@@ -288,7 +293,8 @@ def save_clusters(clusters: list[dict]) -> int:
             json.dumps(cluster.get("titles", [])),
             json.dumps(cluster.get("defined_terms", [])),
             cluster.get("article_count", 0),
-            datetime.now().isoformat()
+            datetime.now().isoformat(),
+            cluster.get("region"),
         ))
 
         for article in cluster.get("articles", []):
@@ -303,8 +309,9 @@ def save_clusters(clusters: list[dict]) -> int:
                 INSERT OR REPLACE INTO articles
                 (url, title, source, text, credibility_score, credibility_label, cluster_id, scraped_at,
                  analysis_json, article_json, bias_label, dominant_emotion, subjectivity_ratio,
-                 analysis_status, analyzed_at, summary, summary_model_version, summarized_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 analysis_status, analyzed_at, summary, summary_model_version, summarized_at,
+                 region)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 article.get("url", ""),
                 article.get("title", ""),
@@ -324,6 +331,7 @@ def save_clusters(clusters: list[dict]) -> int:
                 article_summary,
                 "bart-news" if article_summary else None,
                 article.get("summarized_at") if article_summary else None,
+                article.get("region"),
             ))
         saved += 1
 
@@ -390,7 +398,7 @@ def get_cached_summaries() -> dict:
 
     cursor.execute("""
         SELECT id, summary, highlighted_summary, detailed_summary, sources, urls, titles, terms,
-               article_count, updated_at
+               article_count, updated_at, region
         FROM clusters
         WHERE date(updated_at) = ?
         ORDER BY article_count DESC, updated_at DESC
@@ -418,7 +426,8 @@ def get_cached_summaries() -> dict:
             "defined_terms": json.loads(row["terms"]) if row["terms"] else [],
             "source_credibility": source_credibility,
             "article_count": row["article_count"],
-            "updated_at": row["updated_at"]
+            "updated_at": row["updated_at"],
+            "region": row["region"],
         }
         # Defensive repair: if pre-fix data is still in the live table, fix
         # the source/url pairing on the way out instead of trusting the JSON
@@ -505,7 +514,7 @@ def get_cluster(cluster_id: str) -> Optional[dict]:
 
     cursor.execute("""
         SELECT id, summary, highlighted_summary, detailed_summary, sources, urls, titles, terms,
-               article_count, updated_at
+               article_count, updated_at, region
         FROM clusters WHERE id = ? AND date(updated_at) = ?
     """, (cluster_id, today_str()))
     row = cursor.fetchone()
@@ -532,7 +541,8 @@ def get_cluster(cluster_id: str) -> Optional[dict]:
         "titles": json.loads(row["titles"]) if row["titles"] else [],
         "defined_terms": json.loads(row["terms"]) if row["terms"] else [],
         "article_count": row["article_count"],
-        "updated_at": row["updated_at"]
+        "updated_at": row["updated_at"],
+        "region": row["region"],
     }
     cluster = _repair_cluster_source_pairings(cluster)
 
@@ -566,6 +576,38 @@ def get_cluster(cluster_id: str) -> Optional[dict]:
     return cluster
 
 
+def save_article_summary(article: dict) -> None:
+    """Persist one article's BART summary as soon as it's generated, so an
+    interrupted pipeline run (worker restart, crash) keeps its progress.
+    A brand-new article gets a provisional row; save_clusters fills in the
+    rest when the run completes."""
+    credibility = article.get("credibility") or {}
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO articles
+        (url, title, source, text, credibility_score, credibility_label, scraped_at,
+         summary, summary_model_version, summarized_at, region)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'bart-news', ?, ?)
+        ON CONFLICT(url) DO UPDATE SET
+            summary = excluded.summary,
+            summary_model_version = excluded.summary_model_version,
+            summarized_at = excluded.summarized_at
+    """, (
+        article.get("url", ""),
+        article.get("title", ""),
+        article.get("source", "unknown"),
+        article.get("text", ""),
+        credibility.get("score"),
+        credibility.get("bias_label", "unknown"),
+        datetime.now().isoformat(),
+        article["summary"],
+        article.get("summarized_at"),
+        article.get("region"),
+    ))
+    conn.commit()
+    conn.close()
+
+
 def get_article_summaries(urls: list[str]) -> dict[str, tuple[str, Optional[str]]]:
     """Return {url: (summary, summarized_at)} for articles already summarized."""
     if not urls:
@@ -589,6 +631,32 @@ def get_article_summaries(urls: list[str]) -> dict[str, tuple[str, Optional[str]
     return out
 
 
+def get_cached_analyses(urls: list[str]) -> dict[str, dict]:
+    """Return {url: {"chunks", "article"}}: stored DeBERTa results for
+    articles that were already analyzed, so a pipeline run can skip them."""
+    if not urls:
+        return {}
+    conn = get_connection()
+    cursor = conn.cursor()
+    out = {}
+    for start in range(0, len(urls), 500):
+        batch = urls[start:start + 500]
+        placeholders = ",".join("?" * len(batch))
+        cursor.execute(
+            f"""SELECT url, analysis_json, article_json FROM articles
+                WHERE url IN ({placeholders})
+                  AND analysis_json IS NOT NULL AND article_json IS NOT NULL""",
+            batch,
+        )
+        for row in cursor.fetchall():
+            chunks = _parse_json(row["analysis_json"])
+            article_agg = _parse_json(row["article_json"])
+            if chunks is not None and article_agg:
+                out[row["url"]] = {"chunks": chunks, "article": article_agg}
+    conn.close()
+    return out
+
+
 def get_articles_with_analysis(urls: list[str]) -> dict[str, dict]:
     """Return {url: article} with summary and cached DeBERTa analysis, in the
     shape the cluster breakdown UI expects."""
@@ -602,7 +670,7 @@ def get_articles_with_analysis(urls: list[str]) -> dict[str, dict]:
         placeholders = ",".join("?" * len(batch))
         cursor.execute(
             f"""SELECT url, title, source, summary, credibility_score, credibility_label,
-                       bias_label, analysis_json, article_json, analysis_status
+                       bias_label, analysis_json, article_json, analysis_status, region
                 FROM articles WHERE url IN ({placeholders})""",
             batch,
         )
@@ -618,11 +686,35 @@ def get_articles_with_analysis(urls: list[str]) -> dict[str, dict]:
                 "credibility_score": row["credibility_score"],
                 "credibility_label": row["credibility_label"],
                 "lean": _article_lean(row["credibility_label"], row["bias_label"]),
+                "region": row["region"],
                 "analysis_status": "done" if has_analysis else (row["analysis_status"] or "pending"),
                 "analysis": {"chunks": chunks or [], "article": article_agg or {}} if has_analysis else None,
             }
     conn.close()
     return out
+
+
+def get_recent_articles(hours: int = 24) -> list[dict]:
+    """Articles seen in the last `hours`: what the Learn and Glossary pages
+    mean by "today's news". The articles table is never pruned, so scanning
+    all of it (as get_all_articles does) gets slower every hour."""
+    # scraped_at is always written as datetime.isoformat(), so string
+    # comparison against an isoformat cutoff is chronological.
+    cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT url, title, source, text
+        FROM articles
+        WHERE url IS NOT NULL AND url != '' AND scraped_at >= ?
+        ORDER BY scraped_at DESC
+    """, (cutoff,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [
+        {"url": r["url"], "title": r["title"], "source": r["source"], "text": r["text"]}
+        for r in rows
+    ]
 
 
 def get_all_articles() -> list[dict]:

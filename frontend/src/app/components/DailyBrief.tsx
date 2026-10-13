@@ -1,11 +1,13 @@
 import { Link } from "react-router";
-import { SourceBadge, SectionLabel, getTopicIcon } from "./shared";
+import { REGIONS, Region, RegionIcon, SourceBadge, SectionLabel, getTopicIcon } from "./shared";
 
 export interface BriefSection {
   cluster_id: string;
   headline: string;
   bullets: string[];
   article_count: number;
+  // Missing on briefs built before regions existed; those count as U.S. news.
+  region?: Region;
 }
 
 export interface DailySummary {
@@ -68,36 +70,57 @@ export function DailyBriefCard({
         </div>
       </header>
 
-      <div className="space-y-7 mb-6">
-        {data.sections.map(s => {
-          const headline = s.headline.length > 110 ? s.headline.slice(0, 110) + "…" : s.headline;
+      <div className="space-y-10 mb-6">
+        {REGIONS.map(({ region, heading }) => {
+          const sections = data.sections.filter(s => (s.region ?? "us") === region);
+          if (sections.length === 0) return null;
           return (
-            <section key={s.cluster_id}>
-              <h3 className="flex items-start gap-2.5 mb-2">
-                <span className="text-xl leading-none mt-1 shrink-0">{getTopicIcon(s.bullets.join(" "))}</span>
-                {onHeadlineClick ? (
-                  <button
-                    onClick={() => onHeadlineClick(s.cluster_id)}
-                    className="text-left hover:underline decoration-[var(--accent)] underline-offset-2"
-                    style={HEADLINE_STYLE}
-                  >
-                    {headline}
-                  </button>
-                ) : (
-                  <Link
-                    to={`/cluster/${encodeURIComponent(s.cluster_id)}`}
-                    className="hover:underline decoration-[var(--accent)] underline-offset-2"
-                    style={HEADLINE_STYLE}
-                  >
-                    {headline}
-                  </Link>
-                )}
+            <section key={region} aria-labelledby={`brief-${region}`}>
+              <h3
+                id={`brief-${region}`}
+                className="flex items-center gap-2.5 pb-2 mb-6 border-b-2 border-foreground/15"
+                style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "1.45rem", lineHeight: 1.2 }}
+              >
+                <RegionIcon region={region} size={22} />
+                {heading}
+                <span className="ml-auto text-sm font-normal text-muted-foreground" style={{ fontFamily: "var(--font-data)" }}>
+                  {sections.length} topic{sections.length !== 1 ? "s" : ""}
+                </span>
               </h3>
-              <ul className="list-disc pl-8 sm:pl-12 space-y-2 text-lg text-foreground leading-relaxed marker:text-muted-foreground">
-                {s.bullets.map((b, i) => (
-                  <li key={i} dangerouslySetInnerHTML={{ __html: b }} />
-                ))}
-              </ul>
+              <div className="space-y-7">
+                {sections.map(s => {
+                  const headline = s.headline.length > 110 ? s.headline.slice(0, 110) + "…" : s.headline;
+                  return (
+                    <article key={s.cluster_id}>
+                      <h4 className="flex items-start gap-2.5 mb-2">
+                        <span className="text-xl leading-none mt-1 shrink-0">{getTopicIcon(s.bullets.join(" "))}</span>
+                        {onHeadlineClick ? (
+                          <button
+                            onClick={() => onHeadlineClick(s.cluster_id)}
+                            className="text-left link"
+                            style={HEADLINE_STYLE}
+                          >
+                            {headline}
+                          </button>
+                        ) : (
+                          <Link
+                            to={`/cluster/${encodeURIComponent(s.cluster_id)}`}
+                            className="link"
+                            style={HEADLINE_STYLE}
+                          >
+                            {headline}
+                          </Link>
+                        )}
+                      </h4>
+                      <ul className="list-disc pl-8 sm:pl-12 space-y-2 text-lg text-foreground leading-relaxed marker:text-muted-foreground">
+                        {s.bullets.map((b, i) => (
+                          <li key={i} dangerouslySetInnerHTML={{ __html: b }} />
+                        ))}
+                      </ul>
+                    </article>
+                  );
+                })}
+              </div>
             </section>
           );
         })}

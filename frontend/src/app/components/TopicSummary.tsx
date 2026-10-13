@@ -100,8 +100,7 @@ export function TopicSummary({
                         href={d.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="font-semibold hover:underline"
-                        style={{ color: "var(--accent)" }}
+                        className="font-semibold link"
                       >
                         {d.source}
                       </a>

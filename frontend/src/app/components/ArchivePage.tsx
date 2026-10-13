@@ -2,7 +2,9 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router";
 import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from "lucide-react";
 import { Calendar } from "./ui/calendar";
-import { Spinner, StateBox, SourceBadge, AiBanner, SectionLabel, getTopicIcon } from "./shared";
+import {
+  Spinner, StateBox, SourceBadge, AiBanner, SectionLabel, getTopicIcon, Region, RegionTag,
+} from "./shared";
 import { DailyBriefCard, DailySummary } from "./DailyBrief";
 import { DefinedTerm, DetailedSummary, KeyTermChips, TopicSummary } from "./TopicSummary";
 import { ArticleBlock, ArticleEntry, ClusterArticle } from "./ArticleBreakdown";
@@ -25,6 +27,7 @@ interface ArchiveCluster {
   urls?: string[];
   source_credibility?: Array<{ score: number | null; label: string }>;
   defined_terms?: DefinedTerm[];
+  region?: Region | null;
 }
 
 interface Snapshot {
@@ -135,9 +138,12 @@ function ArchiveTopic({
             >
               {title}
             </h3>
-            <p className="mt-1 text-sm text-muted-foreground" style={{ fontFamily: "var(--font-data)" }}>
-              {articleCount} article{articleCount !== 1 ? "s" : ""} · {new Set(sources).size} source
-              {new Set(sources).size !== 1 ? "s" : ""}
+            <p className="mt-1.5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground" style={{ fontFamily: "var(--font-data)" }}>
+              {cluster.region && <RegionTag region={cluster.region} />}
+              <span>
+                {articleCount} article{articleCount !== 1 ? "s" : ""} · {new Set(sources).size} source
+                {new Set(sources).size !== 1 ? "s" : ""}
+              </span>
             </p>
           </div>
         </header>

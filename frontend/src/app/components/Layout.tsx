@@ -1,7 +1,11 @@
 import { useState } from "react";
-import { Outlet, NavLink } from "react-router";
+import { Outlet, NavLink, useLocation } from "react-router";
 import { Menu, X } from "lucide-react";
-import { BrandIcon } from "./shared";
+import { BrandIcon, DEFAULT_WIDTH, WIDE_WIDTH } from "./shared";
+
+// Pages laid out with PageContainer `wide`; the header and footer widen to
+// match so their edges line up with the content.
+const WIDE_PAGES = ["/all-articles"];
 
 const NAV_LINKS = [
   { to: "/",             label: "Today",    end: true  },
@@ -14,12 +18,14 @@ const NAV_LINKS = [
 
 export function Layout() {
   const [open, setOpen] = useState(false);
+  const { pathname } = useLocation();
+  const width = WIDE_PAGES.some(p => pathname.startsWith(p)) ? WIDE_WIDTH : DEFAULT_WIDTH;
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* Top bar */}
       <header className="sticky top-0 z-50 bg-card border-b border-border shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-6">
+        <div className={`${width} mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-6`}>
           {/* Logo */}
           <NavLink
             to="/"
@@ -52,7 +58,7 @@ export function Layout() {
                     "flex items-center px-3 lg:px-4 text-base transition-colors relative",
                     isActive
                       ? "text-foreground font-semibold"
-                      : "text-muted-foreground hover:text-foreground hover:bg-secondary/60",
+                      : "text-muted-foreground hover:text-brand-accent hover:bg-secondary/60",
                   ].join(" ")
                 }
               >
@@ -87,7 +93,7 @@ export function Layout() {
             className="md:hidden border-t border-border bg-card"
             aria-label="Mobile navigation"
           >
-            <div className="max-w-6xl mx-auto px-4 py-3 flex flex-col gap-1">
+            <div className={`${width} mx-auto px-4 py-3 flex flex-col gap-1`}>
               {NAV_LINKS.map(link => (
                 <NavLink
                   key={link.to}
@@ -99,7 +105,7 @@ export function Layout() {
                       "px-4 py-3 text-lg rounded transition-colors",
                       isActive
                         ? "bg-secondary text-foreground font-medium"
-                        : "text-muted-foreground hover:text-foreground hover:bg-secondary",
+                        : "text-muted-foreground hover:text-brand-accent hover:bg-secondary",
                     ].join(" ")
                   }
                 >
@@ -118,7 +124,7 @@ export function Layout() {
 
       {/* Footer */}
       <footer className="border-t border-border py-8 mt-16 text-base text-muted-foreground">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className={`${width} mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4`}>
           <div className="flex items-center gap-2">
             <BrandIcon size={20} />
             <span style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}>Politerate</span>
@@ -129,7 +135,7 @@ export function Layout() {
               <NavLink
                 key={link.to}
                 to={link.to}
-                className="hover:text-foreground transition-colors"
+                className="link"
               >
                 {link.label}
               </NavLink>

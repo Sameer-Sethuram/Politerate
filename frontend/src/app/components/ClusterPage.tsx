@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useParams } from "react-router";
 import { ArrowLeft, AlertCircle } from "lucide-react";
-import { Spinner, StateBox, AiBanner, SourceBadge, SectionLabel } from "./shared";
+import { Spinner, StateBox, AiBanner, SourceBadge, SectionLabel, Region, RegionTag } from "./shared";
 import { ArticleBlock, ArticleEntry, AnalysisStatus, ClusterArticle } from "./ArticleBreakdown";
 import { DefinedTerm, DetailedSummary, KeyTermChips, TopicSummary } from "./TopicSummary";
 
@@ -11,6 +11,7 @@ interface ClusterData {
   summary: string;
   highlighted_summary?: string;
   detailed_summary?: DetailedSummary | null;
+  region?: Region | null;
   article_count: number;
   articles: ClusterArticle[];
   sources: string[];
@@ -73,7 +74,7 @@ export function ClusterPage() {
         {/* Back link */}
         <Link
           to="/"
-          className="inline-flex items-center gap-1.5 text-base text-muted-foreground hover:text-foreground transition-colors mb-6"
+          className="inline-flex items-center gap-1.5 text-base text-muted-foreground mb-6 link"
         >
           <ArrowLeft size={17} />
           Back to Today
@@ -103,7 +104,8 @@ export function ClusterPage() {
           <div className="space-y-6">
             {/* Cluster header */}
             <div>
-              <div className="flex flex-wrap gap-2 mb-3">
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                {cluster.region && <RegionTag region={cluster.region} className="text-sm py-1.5 px-2.5" />}
                 <span
                   className="px-3 py-1.5 rounded bg-secondary text-secondary-foreground text-sm"
                   style={{ fontFamily: "var(--font-data)" }}

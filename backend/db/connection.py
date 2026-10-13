@@ -33,6 +33,7 @@ CREATE INDEX IF NOT EXISTS idx_articles_published ON articles(published_at DESC)
 CREATE INDEX IF NOT EXISTS idx_articles_url_hash ON articles(url_hash);
 CREATE INDEX IF NOT EXISTS idx_articles_bias ON articles(bias_label);
 CREATE INDEX IF NOT EXISTS idx_articles_status ON articles(analysis_status);
+CREATE INDEX IF NOT EXISTS idx_articles_scraped_at ON articles(scraped_at);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(
     title, text,
@@ -84,9 +85,11 @@ def _apply_column_migrations(cursor) -> None:
         ("summary_model_version",   "TEXT"),
         ("summarized_at",           "TIMESTAMP"),
         ("source_type",             "TEXT DEFAULT 'scraped'"),
+        ("region",                  "TEXT"),
     ]
     cluster_migrations = [
         ("detailed_summary",        "TEXT"),
+        ("region",                  "TEXT"),
     ]
 
     for table, migrations in (("articles", article_migrations), ("clusters", cluster_migrations)):

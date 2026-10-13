@@ -30,6 +30,9 @@ CREATE TABLE IF NOT EXISTS articles (
     -- Cluster linkage (news-page grouping)
     cluster_id TEXT,
 
+    -- 'us' or 'world', from the feed the article came from (NULL = older rows)
+    region TEXT,
+
     -- Analysis results (from DeBERTa multi-head analyzer)
     analysis_json TEXT,
     article_json TEXT,
@@ -68,7 +71,9 @@ CREATE TABLE IF NOT EXISTS clusters (
     titles TEXT,
     terms TEXT,
     article_count INTEGER,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    -- 'us' or 'world': most of its articles' region
+    region TEXT
 );
 
 -- ---------------------------------------------------------------------------

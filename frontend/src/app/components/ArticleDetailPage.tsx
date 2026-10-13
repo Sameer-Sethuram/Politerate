@@ -3,12 +3,13 @@ import { Link, useSearchParams } from "react-router";
 import { ExternalLink, ArrowLeft, AlertCircle } from "lucide-react";
 import {
   Spinner, StateBox, LeanBadge, CredBadge, AnnotationLegend, AnnotatedText,
-  PageContainer, Chunk,
+  PageContainer, Chunk, Region, RegionTag,
 } from "./shared";
 
 interface ArticleData {
   title?: string;
   source?: string;
+  region?: Region | null;
   bias_label?: string;
   credibility_label?: string;
   credibility_score?: number;
@@ -52,7 +53,7 @@ export function ArticleDetailPage() {
       {/* Back link */}
       <Link
         to="/all-articles"
-        className="inline-flex items-center gap-1.5 text-base text-muted-foreground hover:text-foreground transition-colors mb-6"
+        className="inline-flex items-center gap-1.5 text-base text-muted-foreground mb-6 link"
       >
         <ArrowLeft size={17} />
         All Articles
@@ -83,6 +84,7 @@ export function ArticleDetailPage() {
         <article className="bg-card border border-border rounded overflow-hidden shadow-sm">
           {/* Article header */}
           <header className="p-6 sm:p-8 border-b border-border">
+            {data.region && <RegionTag region={data.region} className="mb-3" />}
             <h1
               className="mb-4"
               style={{
@@ -109,7 +111,7 @@ export function ArticleDetailPage() {
                   href={url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground border border-border rounded px-3 py-1.5 transition-colors ml-auto"
+                  className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-brand-accent border border-border hover:border-[var(--accent)] rounded px-3 py-1.5 transition-colors ml-auto"
                 >
                   <ExternalLink size={15} />
                   Original article

@@ -67,7 +67,7 @@ export function ArticleBlock({
                 href={article.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="hover:underline decoration-[var(--accent)] underline-offset-2"
+                className="link"
               >
                 {article.title ?? "Untitled"}
               </a>
@@ -94,7 +94,7 @@ export function ArticleBlock({
             href={article.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="shrink-0 text-muted-foreground hover:text-foreground transition-colors mt-1"
+            className="shrink-0 text-muted-foreground hover:text-brand-accent transition-colors mt-1"
             title="Open original"
           >
             <ExternalLink size={17} />
@@ -207,7 +207,7 @@ export function ArticleBlock({
               <div className="border-t border-border pt-3">
                 <button
                   onClick={() => setShowChunks(s => !s)}
-                  className="text-base font-medium hover:underline"
+                  className="text-base font-medium link"
                   style={{ color: "var(--accent)" }}
                 >
                   {showChunks

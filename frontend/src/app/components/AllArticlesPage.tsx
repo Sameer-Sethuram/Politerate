@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router";
 import { ExternalLink, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
-import { Spinner, StateBox, LeanBadge, CredBadge, PageContainer, SectionLabel } from "./shared";
+import {
+  Spinner, StateBox, LeanBadge, CredBadge, PageContainer, SectionLabel, Region, RegionTag,
+} from "./shared";
 
 interface Article {
   url: string;
@@ -12,6 +14,8 @@ interface Article {
   // Articles sharing a topic_id cover the same story (one topic cluster).
   topic_id: string | null;
   in_brief: boolean;
+  // Null for articles stored before regions existed.
+  region: Region | null;
   scraped_at: string;
 }
 
@@ -28,7 +32,30 @@ interface DayGroup {
 
 // Default when the API doesn't send one; mirrors backend CREDIBILITY_THRESHOLD.
 const DEFAULT_THRESHOLD = 0.6;
-const LEADS_SHOWN = 9;
+// Top stories shown before "Show all", in full grid rows.
+const LEAD_ROWS_SHOWN = 2;
+// Cards stay roughly 230–300px wide as the page widens: 5 per row from
+// 1280px, 6 from 1536px.
+const GRID =
+  "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4";
+// GRID's breakpoints as [min-width in rem, columns], widest first. Media
+// queries resolve rem against the browser default, same as Tailwind's.
+const GRID_COLUMNS: Array<[number, number]> = [[96, 6], [80, 5], [64, 4], [48, 3], [40, 2]];
+
+function currentGridColumns(): number {
+  return GRID_COLUMNS.find(([rem]) => window.matchMedia(`(min-width: ${rem}rem)`).matches)?.[1] ?? 1;
+}
+
+/** Columns GRID is currently laid out in, tracking window resizes. */
+function useGridColumns(): number {
+  const [columns, setColumns] = useState(currentGridColumns);
+  useEffect(() => {
+    const onResize = () => setColumns(currentGridColumns());
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return columns;
+}
 
 const credibilityOf = (a: Article) => a.credibility_score ?? -1;
 
@@ -73,17 +100,17 @@ function ArticleCard({
   return (
     <article className="bg-card border border-border rounded p-5 hover:shadow-sm transition-shadow flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
-        <Link
-          to={detailUrl}
-          className="text-lg font-medium text-foreground hover:underline decoration-[var(--accent)] underline-offset-2 leading-snug flex-1 min-w-0"
-        >
-          {article.title || "Untitled"}
-        </Link>
+        <h3 className="text-lg font-medium leading-snug flex-1 min-w-0">
+          {article.region && <RegionTag region={article.region} className="mr-2 align-middle" />}
+          <Link to={detailUrl} className="link">
+            {article.title || "Untitled"}
+          </Link>
+        </h3>
         <a
           href={article.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="shrink-0 text-muted-foreground hover:text-foreground transition-colors mt-1"
+          className="shrink-0 text-muted-foreground hover:text-brand-accent transition-colors mt-1"
           onClick={e => e.stopPropagation()}
           title="Open original article"
         >
@@ -125,14 +152,16 @@ function DaySection({
   group,
   heading,
   threshold,
+  leadsShown,
 }: {
   group: DayGroup;
   heading: string;
   threshold: number;
+  leadsShown: number;
 }) {
   const [showAllLeads, setShowAllLeads] = useState(false);
   const [showMore, setShowMore] = useState(false);
-  const leads = showAllLeads ? group.leads : group.leads.slice(0, LEADS_SHOWN);
+  const leads = showAllLeads ? group.leads : group.leads.slice(0, leadsShown);
   const total = group.leads.length + group.more.length;
 
   return (
@@ -156,7 +185,7 @@ function DaySection({
       {group.leads.length > 0 && (
         <>
           <SectionLabel>Top stories · most credible source per story</SectionLabel>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className={GRID}>
             {leads.map(a => (
               <ArticleCard
                 key={a.url}
@@ -165,7 +194,7 @@ function DaySection({
               />
             ))}
           </div>
-          {group.leads.length > LEADS_SHOWN && (
+          {group.leads.length > leadsShown && (
             <button
               onClick={() => setShowAllLeads(s => !s)}
               className="mt-4 flex items-center gap-1.5 text-sm font-medium text-muted-foreground border border-border rounded px-4 py-2 hover:text-foreground hover:border-foreground/20 transition-colors"
@@ -197,7 +226,7 @@ function DaySection({
             {showMore ? <ChevronUp size={20} className="shrink-0" /> : <ChevronDown size={20} className="shrink-0" />}
           </button>
           {showMore && (
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className={`mt-4 ${GRID}`}>
               {group.more.map(a => (
                 <ArticleCard
                   key={a.url}
@@ -219,6 +248,7 @@ export function AllArticlesPage() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [today, setToday] = useState("");
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD);
+  const leadsShown = LEAD_ROWS_SHOWN * useGridColumns();
 
   useEffect(() => {
     (async () => {
@@ -251,7 +281,7 @@ export function AllArticlesPage() {
   }, [articles, threshold]);
 
   return (
-    <PageContainer>
+    <PageContainer wide>
       {/* Page header */}
       <div className="mb-8 pb-6 border-b border-border">
         <h1
@@ -298,6 +328,7 @@ export function AllArticlesPage() {
               key={group.day}
               group={group}
               threshold={threshold}
+              leadsShown={leadsShown}
               heading={group.day === today ? `Today · ${formatDayHeading(group.day)}` : formatDayHeading(group.day)}
             />
           ))}

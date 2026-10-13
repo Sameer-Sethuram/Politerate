@@ -19,7 +19,13 @@ Usage (from project root, with BART available):
     python -m scripts.backfill_summaries --force        # rebuild even backfilled clusters
 
 Idempotent — without --force, clusters that already have a detailed summary
-are skipped.
+are skipped. Summaries are saved as they're generated, so it's safe to stop
+and re-run.
+
+Memory: this process loads its own copy of BART (and the embedding model).
+On a small server, stop the web service first (`sudo systemctl stop
+politerate`) and start it again afterwards; two BART copies at once can
+exhaust RAM and stall the site.
 """
 
 import json
@@ -75,36 +81,18 @@ def load_articles(urls: list[str]) -> list[dict]:
     return articles
 
 
-def store_article_summaries(articles: list[dict], before: dict) -> int:
-    """Persist summaries generated during this run."""
-    new = [a for a in articles if a.get("summary") and a.get("summary") != before.get(a["url"])]
-    if not new:
-        return 0
-    conn = get_connection()
-    cur = conn.cursor()
-    for a in new:
-        cur.execute(
-            """UPDATE articles
-               SET summary = ?, summary_model_version = 'bart-news', summarized_at = ?
-               WHERE url = ?""",
-            (a["summary"], a.get("summarized_at"), a["url"]),
-        )
-    conn.commit()
-    conn.close()
-    return len(new)
-
-
 def rebuild_cluster(pipeline: PoliteratePipeline, urls: list[str]) -> dict | None:
     """Fresh summary fields for a cluster, or None if too few of its
-    articles are still stored."""
+    articles are still stored. New article summaries are saved by the
+    pipeline as they're generated."""
     articles = load_articles(urls)
     if len(articles) < MIN_ARTICLES:
         return None
-    before = {a["url"]: a.get("summary") for a in articles}
+    had_summary = {a["url"] for a in articles if a.get("summary")}
     result = pipeline.build_cluster_summaries(articles)
-    stored = store_article_summaries(articles, before)
-    if stored:
-        logger.info(f"    summarized {stored} new article(s)")
+    new = sum(1 for a in articles if a.get("summary") and a["url"] not in had_summary)
+    if new:
+        logger.info(f"    summarized {new} new article(s)")
     if not result["summary"] or result["summary"].startswith("["):
         return None
     return result

@@ -136,8 +136,7 @@ function TermOfDayCard({ term, loading }: { term: TermOfDay | null; loading: boo
               href={s.url}
               target="_blank"
               rel="noopener"
-              className="hover:underline"
-              style={{ color: "var(--accent)" }}
+              className="link"
             >
               {s.source}
             </a>
@@ -327,7 +326,7 @@ function QuizCard({ streak, onStreak }: { streak: number; onStreak: (n: number) 
           "{q.article_snippet.snippet}"
           <footer className="text-sm text-muted-foreground not-italic mt-1">
             —{" "}
-            <a href={q.article_snippet.url} target="_blank" rel="noopener" className="hover:underline" style={{ color: "var(--accent)" }}>
+            <a href={q.article_snippet.url} target="_blank" rel="noopener" className="link">
               {q.article_snippet.source}
             </a>
           </footer>

@@ -33,13 +33,18 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# Regions, as tagged by rss_scraper (US / WORLD). Articles and clusters saved
+# before regions existed count as U.S. news.
+US_REGION = "us"
+WORLD_REGION = "world"
+
 # Tune from here. A cluster must have >= MIN_ARTICLES_PER_CLUSTER to be in the
-# daily brief; at most MAX_CLUSTERS_IN_DAILY_BRIEF survive (used for topic cards),
-# and MAX_CLUSTERS_IN_BRIEF_INPUT caps what we actually feed to the hierarchical
-# BART pass — keeping the input short avoids degenerate generation when BART
-# runs out of coherent things to say.
+# daily brief; at most MAX_BRIEF_TOPICS_BY_REGION survive per region (U.S.
+# first, then world), and MAX_CLUSTERS_IN_BRIEF_INPUT caps what we actually
+# feed to the hierarchical BART pass — keeping the input short avoids
+# degenerate generation when BART runs out of coherent things to say.
 MIN_ARTICLES_PER_CLUSTER = 3
-MAX_CLUSTERS_IN_DAILY_BRIEF = 8
+MAX_BRIEF_TOPICS_BY_REGION = {US_REGION: 6, WORLD_REGION: 4}
 MAX_CLUSTERS_IN_BRIEF_INPUT = 5
 
 # Conditional generation tiers: (source_token_threshold, (max_length, min_length)).
@@ -87,6 +92,11 @@ OVERVIEW_MAX_TOKENS = 96
 OVERVIEW_MIN_TOKENS = 30
 # Fallback relevance for articles with no credibility score.
 DEFAULT_CREDIBILITY = 0.5
+# Most new per-article summaries one pipeline run generates. The run shares
+# the web server's CPU, and a backlog (first run after a deploy, or after
+# downtime) would otherwise pin it for many minutes. Later runs pick up the
+# rest; meanwhile topics are built from the summaries already stored.
+MAX_NEW_ARTICLE_SUMMARIES_PER_RUN = 40
 
 
 def _budget_for_source(token_count: int) -> tuple[int, int]:
@@ -375,16 +385,29 @@ def _credibility_score(article: dict) -> float:
     return float(score) if score is not None else DEFAULT_CREDIBILITY
 
 
+def cluster_region(cluster: dict) -> str:
+    return cluster.get("region") or US_REGION
+
+
+def majority_region(articles: list[dict]) -> str:
+    """A topic's region: most of its articles' (ties go to U.S. news)."""
+    world = sum(1 for a in articles if a.get("region") == WORLD_REGION)
+    return WORLD_REGION if world > len(articles) - world else US_REGION
+
+
 def select_brief_clusters(clusters: list[dict]) -> list[dict]:
     """The clusters that make the Daily Brief: real multi-article topics,
-    largest first."""
+    largest first, up to MAX_BRIEF_TOPICS_BY_REGION per region, U.S. first."""
     eligible = [
         c for c in clusters
         if not str(c.get("cluster_id", "")).startswith("singleton_")
         and c.get("article_count", 0) >= MIN_ARTICLES_PER_CLUSTER
     ]
     eligible.sort(key=lambda c: c.get("article_count", 0), reverse=True)
-    return eligible[:MAX_CLUSTERS_IN_DAILY_BRIEF]
+    selected = []
+    for region, limit in MAX_BRIEF_TOPICS_BY_REGION.items():
+        selected.extend([c for c in eligible if cluster_region(c) == region][:limit])
+    return selected
 
 
 class PoliteratePipeline:
@@ -405,6 +428,9 @@ class PoliteratePipeline:
 
         self._model = None
         self._tokenizer = None
+        # Remaining new article summaries allowed this run; None = no limit
+        # (process_clusters sets it for scheduled runs).
+        self._summary_budget: Optional[int] = None
 
     def scrape(self) -> dict:
         logger.info("Step 1: Scraping articles...")
@@ -438,7 +464,13 @@ class PoliteratePipeline:
 
     def filter_credibility(self, articles: list[dict]) -> tuple[list[dict], list[dict]]:
         logger.info("Step 4: Filtering by credibility...")
-        passed, failed = filter_by_credibility(articles)
+        try:
+            from backend.db.cache import get_cached_analyses
+            cached = get_cached_analyses([a["url"] for a in articles if a.get("url")])
+        except Exception as e:
+            logger.warning(f"Could not load stored analyses, analyzing everything: {e}")
+            cached = {}
+        passed, failed = filter_by_credibility(articles, cached)
         logger.info(f"Credibility filter: {len(passed)} passed, {len(failed)} filtered")
         return passed, failed
 
@@ -583,17 +615,27 @@ class PoliteratePipeline:
 
     def _article_summary(self, article: dict) -> str:
         """The article's own BART summary: cached from an earlier run, else
-        generated now and stored on the article for save_clusters."""
+        generated now (within this run's budget) and saved immediately, so an
+        interrupted run keeps the summaries it already paid for."""
         cached = (article.get("summary") or "").strip()
         if cached and not cached.startswith("["):
             return cached
         if not self._model or not article.get("text"):
             return ""
+        if self._summary_budget is not None:
+            if self._summary_budget <= 0:
+                return ""
+            self._summary_budget -= 1
         summary = self.summarize(article["text"])
         if not summary or summary.startswith("["):
             return ""
         article["summary"] = summary
         article["summarized_at"] = datetime.now().isoformat()
+        try:
+            from backend.db.cache import save_article_summary
+            save_article_summary(article)
+        except Exception as e:
+            logger.warning(f"Could not save summary for {article.get('url')}: {e}")
         return summary
 
     def _topic_overview(self, pool: list[dict], sim: list[list[float]]) -> str:
@@ -818,6 +860,7 @@ class PoliteratePipeline:
                 "headline": (c.get("titles") or [""])[0],
                 "bullets": [self.highlighter.highlight(b) for b in bullets],
                 "article_count": c.get("article_count", 0),
+                "region": cluster_region(c),
             })
 
         unified_summary = self.create_daily_summary(filtered_clusters) if include_unified else ""
@@ -836,6 +879,7 @@ class PoliteratePipeline:
     def process_clusters(self, clusters: dict) -> list[dict]:
         results = []
         self._attach_cached_summaries(clusters)
+        self._summary_budget = MAX_NEW_ARTICLE_SUMMARIES_PER_RUN
 
         for cluster_id, articles in clusters.items():
             if str(cluster_id).startswith("singleton_"):
@@ -856,6 +900,7 @@ class PoliteratePipeline:
             results.append({
                 "cluster_id": cluster_id,
                 "article_count": len(articles),
+                "region": majority_region(articles),
                 "sources": sources,
                 "urls": source_urls,
                 "titles": [a.get("title") for a in articles],
@@ -887,9 +932,10 @@ class PoliteratePipeline:
         }
 
     def _build_raw_articles_with_dedup(self) -> dict:
-        """Fetch RSS links, download only new URLs, merge with archive. Returns {source: {url: article}}."""
+        """Fetch RSS links, download only new URLs, merge with archive. Returns
+        {source: {url: article}}; each article carries its feed's region."""
         try:
-            from backend.pipeline.rss_scraper import get_all_top_story_links
+            from backend.pipeline.rss_scraper import get_feed_links
             from backend.pipeline.scraper import scrape_articles_by_source
         except ImportError as e:
             logger.error(f"Import error: {e}")
@@ -905,7 +951,7 @@ class PoliteratePipeline:
 
         prune_archive(days=7)
 
-        links_by_source = get_all_top_story_links()
+        links_by_source, region_by_url = get_feed_links()
         all_urls = [u for urls in links_by_source.values() for u in urls]
         unseen = set(filter_unseen_urls(all_urls))
 
@@ -945,6 +991,7 @@ class PoliteratePipeline:
                 if url in archived:
                     art = archived[url].copy()
                     art["source"] = source
+                    art["region"] = region_by_url.get(url, US_REGION)
                     source_dict[url] = art
             if source_dict:
                 raw_articles[source] = source_dict

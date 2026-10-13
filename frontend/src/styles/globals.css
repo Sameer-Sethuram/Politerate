@@ -6,6 +6,23 @@
   font-family: var(--font-data);
 }
 
+/* Text links (and link-styled buttons): always underlined so they read as
+   clickable, brand purple on hover. Distinct from glossary terms, which use
+   a dotted underline. Chips, tabs and button-shaped links don't use this. */
+@utility link {
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  transition: color 150ms ease, text-decoration-color 150ms ease;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--brand-accent);
+    text-decoration-color: var(--brand-accent);
+  }
+}
+
 /* Glossary-term highlights injected by the backend highlighter
    (backend/pipeline/highlighter.py) into `highlighted_summary` HTML. */
 .politerate-term {
