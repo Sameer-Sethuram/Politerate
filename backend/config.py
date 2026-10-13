@@ -24,6 +24,10 @@ FRONTEND_DIST_DIR = PROJECT_ROOT / "frontend" / "dist"
 # SQLite cache. Kept at project root so existing DBs aren't orphaned.
 DB_PATH = PROJECT_ROOT / "politerate.db"
 
+# Nightly database backups (scripts/backup_db.py). Outside the repo so
+# re-cloning or `git clean` can't delete them.
+BACKUP_DIR = Path(os.environ.get("POLITERATE_BACKUP_DIR", Path.home() / "politerate_backups"))
+
 # Where the fine-tuned BART summarizer lives locally (for dev machines that
 # trained it). Falls back to HF Hub when missing.
 BART_LOCAL_DIR = PROJECT_ROOT / "fine_tuned_bart_news"

@@ -23,7 +23,7 @@ from datetime import datetime
 from typing import Callable, Optional
 
 from backend.pipeline.preprocessor import preprocess_batch
-from backend.pipeline.clustering import cluster_articles, ArticleClusterer
+from backend.pipeline.clustering import cluster_articles, ArticleClusterer, DEFAULT_SIMILARITY_THRESHOLD
 from backend.pipeline.credibility import filter_by_credibility
 from backend.pipeline.highlighter import TermHighlighter
 logging.basicConfig(
@@ -80,9 +80,13 @@ MMR_LAMBDA = 0.7
 ARTICLE_REPEAT_PENALTY = 0.15
 # A sentence this similar to an already-picked one is dropped as a repeat.
 # Sentence-embedding cosine and bag-of-words cosine sit on different
-# scales, hence one threshold for each.
-REDUNDANCY_THRESHOLD_EMBED = 0.75
-REDUNDANCY_THRESHOLD_BOW = 0.5
+# scales, hence one threshold for each. Both were set on ~1,500 pairs of
+# opening sentences from different outlets covering the same story: from
+# 0.65 embedding similarity up, nearly every pair restates the same fact.
+# Bag-of-words separates them less cleanly; at 0.35 it catches about 60% of
+# those repeats and matches about 1% of pairs that say different things.
+REDUNDANCY_THRESHOLD_EMBED = 0.65
+REDUNDANCY_THRESHOLD_BOW = 0.35
 # The topic overview is a second BART pass over the per-article summaries;
 # stay under BART's 1024-token input window.
 OVERVIEW_INPUT_TOKEN_BUDGET = 1000
@@ -285,7 +289,13 @@ def _bow_similarity(texts_a: list[str], texts_b: list[str]) -> list[list[float]]
             return 0.0
         if len(ca) > len(cb):
             ca, cb = cb, ca
-        return sum(v * cb.get(term, 0) for term, v in ca.items()) / (na * nb)
+        shared = [term for term in ca if term in cb]
+        # One shared word (often just a name) doesn't make two sentences say
+        # the same thing, but between short sentences it alone would score
+        # past REDUNDANCY_THRESHOLD_BOW.
+        if len(shared) < 2:
+            return 0.0
+        return sum(ca[term] * cb[term] for term in shared) / (na * nb)
 
     va, vb = vectorize(texts_a), vectorize(texts_b)
     return [[cosine(a, b) for b in vb] for a in va]
@@ -380,6 +390,23 @@ def _rank_sentences(
     return picked
 
 
+def _drop_redundant(candidates: list[str], shown: list[str]) -> list[str]:
+    """`candidates` minus any sentence too similar to one in `shown` or to an
+    earlier candidate. Runs in the web process (no embedding model loaded),
+    so it uses the bag-of-words similarity."""
+    if not candidates:
+        return []
+    texts = shown + candidates
+    sim, redundancy = _similarity(texts, texts)
+    kept_idx = list(range(len(shown)))
+    kept = []
+    for k in range(len(shown), len(texts)):
+        if all(sim[k][j] < redundancy for j in kept_idx):
+            kept_idx.append(k)
+            kept.append(texts[k])
+    return kept
+
+
 def _credibility_score(article: dict) -> float:
     score = (article.get("credibility") or {}).get("score")
     return float(score) if score is not None else DEFAULT_CREDIBILITY
@@ -414,7 +441,7 @@ class PoliteratePipeline:
     def __init__(
         self,
         model_path: Optional[str] = None,
-        similarity_threshold: float = 0.40,
+        similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
         min_cluster_size: int = 2,
         credibility_threshold: float = 0.6
     ):
@@ -850,11 +877,18 @@ class PoliteratePipeline:
 
         # Bulleted brief: one section per top topic, one bullet per sentence.
         # Each bullet is highlighted separately so term markup never spans two.
+        # Every bullet is checked against all bullets shown before it, across
+        # topics: each topic's own bullets were picked to be distinct, but two
+        # topics can cover the same story, and summaries saved before that
+        # selection existed can repeat themselves. A topic left with no new
+        # bullets duplicates an earlier one and is left out.
         sections = []
+        shown: list[str] = []
         for c in self._select_brief_clusters(clusters):
-            bullets = _summary_bullets(c.get("summary", ""))
+            bullets = _drop_redundant(_summary_bullets(c.get("summary", "")), shown)
             if not bullets:
                 continue
+            shown.extend(bullets)
             sections.append({
                 "cluster_id": c.get("cluster_id"),
                 "headline": (c.get("titles") or [""])[0],

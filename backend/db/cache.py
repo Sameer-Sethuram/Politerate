@@ -405,11 +405,19 @@ def get_cached_summaries() -> dict:
     """, (today_str(),))
     rows = cursor.fetchall()
 
-    cursor.execute("SELECT url, credibility_score, credibility_label FROM articles")
-    cred_by_url = {
-        r["url"]: {"score": r["credibility_score"], "label": r["credibility_label"]}
-        for r in cursor.fetchall()
-    }
+    # Credibility for just these clusters' articles; the articles table is
+    # never pruned, so scanning all of it on every page load keeps growing.
+    cluster_urls = list({u for row in rows for u in (json.loads(row["urls"]) if row["urls"] else [])})
+    cred_by_url = {}
+    for start in range(0, len(cluster_urls), 500):
+        batch = cluster_urls[start:start + 500]
+        cursor.execute(
+            f"SELECT url, credibility_score, credibility_label FROM articles "
+            f"WHERE url IN ({','.join('?' * len(batch))})",
+            batch,
+        )
+        for r in cursor.fetchall():
+            cred_by_url[r["url"]] = {"score": r["credibility_score"], "label": r["credibility_label"]}
 
     clusters = []
     for row in rows:

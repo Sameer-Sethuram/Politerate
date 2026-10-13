@@ -27,7 +27,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-DEFAULT_SIMILARITY_THRESHOLD = 0.40
+# Clusters use complete linkage: every pair of articles in a topic must be at
+# least this similar. Average linkage at 0.40 chained separate stories into
+# one topic through articles in between (on a day of ~360 articles, the
+# Guilfoyle resignation and the new press secretary's first briefing became a
+# single 43-article topic, and a U.S. Senate fight over a Russia deal joined
+# the Ukraine war). At 0.55, single stories start splitting into pieces.
+DEFAULT_SIMILARITY_THRESHOLD = 0.50
 DEFAULT_MIN_CLUSTER_SIZE = 2
 
 
@@ -94,7 +100,7 @@ class ArticleClusterer:
             n_clusters=None,
             distance_threshold=1 - self.similarity_threshold,
             metric="precomputed",
-            linkage="average"
+            linkage="complete"
         )
 
         labels = clustering.fit_predict(distance_matrix)
