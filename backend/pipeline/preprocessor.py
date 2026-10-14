@@ -28,7 +28,9 @@ _BOILERPLATE = re.compile(
     r"terms of (use|service)|privacy policy|cookie(s)?|advertisement|"
     r"skip to (content|main)|you('ve)? reached your|free article|"
     r"get unlimited access|support (our|independent) journalism|"
-    r"this article (is|was) (originally )?published|contributed to this report)",
+    r"this article (is|was) (originally )?published|contributed to this report|"
+    # AP's notice on wire stories, and Fox's market-data footer
+    r"may not be published, broadcast|quotes displayed in real[\s-]?time|market data provided by)",
     re.IGNORECASE,
 )
 

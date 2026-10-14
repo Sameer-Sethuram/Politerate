@@ -27,14 +27,24 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-# Clusters use complete linkage: every pair of articles in a topic must be at
-# least this similar. Average linkage at 0.40 chained separate stories into
-# one topic through articles in between (on a day of ~360 articles, the
-# Guilfoyle resignation and the new press secretary's first briefing became a
-# single 43-article topic, and a U.S. Senate fight over a Russia deal joined
-# the Ukraine war). At 0.55, single stories start splitting into pieces.
+# Two articles' similarity blends how close their embeddings are (what they
+# mean) with how many distinctive words they share (TF-IDF over the run's
+# articles, so a name or place few articles mention counts for a lot and
+# words every political story uses, like "Trump" or "midterms", count for
+# little). Embeddings alone rate unrelated political stories as fairly
+# similar, which merged them into one topic.
+EMBEDDING_WEIGHT = 0.6
+# Topics are merged while their articles' average blended similarity stays
+# at or above this. Scored against hand-labelled stories for ~360 articles
+# from one day: embeddings alone put 21 articles in the wrong topic even with
+# every pair required to be 0.50 similar (complete linkage); the blend at
+# 0.50 put 2, and kept each story in one topic apart from single strays.
 DEFAULT_SIMILARITY_THRESHOLD = 0.50
 DEFAULT_MIN_CLUSTER_SIZE = 2
+
+
+def _article_texts(articles: list[dict]) -> list[str]:
+    return [a.get("text", a.get("title", "")) for a in articles]
 
 
 class ArticleClusterer:
@@ -66,16 +76,26 @@ class ArticleClusterer:
             logger.error("Embedding model not available")
             return None
 
-        texts = [a.get("text", a.get("title", "")) for a in articles]
-        embeddings = self.model.encode(texts, show_progress_bar=True, convert_to_numpy=True)
+        embeddings = self.model.encode(_article_texts(articles), show_progress_bar=True, convert_to_numpy=True)
         return embeddings
 
-    def compute_similarity_matrix(self, embeddings):
+    def compute_similarity_matrix(self, embeddings, texts: Optional[list[str]] = None):
+        """Embedding similarity, blended with distinctive-word overlap when
+        the articles' texts are given (see EMBEDDING_WEIGHT)."""
         if embeddings is None:
             return None
 
         from sklearn.metrics.pairwise import cosine_similarity
-        return cosine_similarity(embeddings)
+        similarity = cosine_similarity(embeddings)
+        if texts:
+            from sklearn.feature_extraction.text import TfidfVectorizer
+            try:
+                tfidf = TfidfVectorizer(stop_words="english", sublinear_tf=True).fit_transform(texts)
+            except ValueError as e:  # no words left, e.g. all texts empty
+                logger.warning(f"Word overlap unavailable, clustering on embeddings alone: {e}")
+            else:
+                similarity = EMBEDDING_WEIGHT * similarity + (1 - EMBEDDING_WEIGHT) * cosine_similarity(tfidf)
+        return similarity
 
     def build_clusters(self, articles: list[dict], embeddings) -> list[list[int]]:
         if embeddings is None or len(embeddings) == 0 or len(articles) == 0:
@@ -84,12 +104,11 @@ class ArticleClusterer:
         from sklearn.cluster import AgglomerativeClustering
         import numpy as np
 
-        similarity_matrix = self.compute_similarity_matrix(embeddings)
+        similarity_matrix = self.compute_similarity_matrix(embeddings, _article_texts(articles))
 
         if similarity_matrix is None:
             return [[i] for i in range(len(articles))]
 
-        import numpy as np
         logger.debug(f"Similarity matrix:\n{np.round(similarity_matrix, 2)}")
 
         n_articles = len(articles)
@@ -100,7 +119,7 @@ class ArticleClusterer:
             n_clusters=None,
             distance_threshold=1 - self.similarity_threshold,
             metric="precomputed",
-            linkage="complete"
+            linkage="average"
         )
 
         labels = clustering.fit_predict(distance_matrix)

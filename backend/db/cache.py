@@ -977,7 +977,30 @@ def get_archive_day(date_str: str) -> Optional[dict]:
     if not snap:
         return None
     snap["clusters"] = _sanitize_snapshot_clusters(snap.get("clusters") or [])
+    _tag_untagged_clusters(snap["clusters"])
     return snap
+
+
+def _tag_untagged_clusters(clusters: list[dict]) -> None:
+    """Snapshots saved before regions existed have topics without one. Tag
+    each the way the pipeline tags new topics: world if most of its articles
+    are world news, else U.S."""
+    untagged = [c for c in clusters if not c.get("region")]
+    urls = list({u for c in untagged for u in c.get("urls") or []})
+    region_of = {}
+    if urls:
+        conn = get_connection()
+        for start in range(0, len(urls), 500):
+            batch = urls[start:start + 500]
+            rows = conn.execute(
+                f"SELECT url, region FROM articles WHERE url IN ({','.join('?' * len(batch))})", batch
+            ).fetchall()
+            region_of.update((r["url"], r["region"]) for r in rows)
+        conn.close()
+    for c in untagged:
+        regions = [region_of.get(u) for u in c.get("urls") or []]
+        world = sum(r == "world" for r in regions)
+        c["region"] = "world" if world > len(regions) - world else "us"
 
 
 def list_snapshot_dates() -> list[dict]:

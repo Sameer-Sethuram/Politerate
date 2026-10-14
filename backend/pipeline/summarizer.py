@@ -332,32 +332,33 @@ def _rank_sentences(
 ) -> list[int]:
     """Pick up to `limit` sentences from `pool` by maximal marginal relevance.
 
-    Each pool item is {"text", "article", "position", "credibility"}, where
-    `article` identifies the source article and `position` is the sentence's
-    index within that article's summary. Relevance is mostly cross-outlet
-    support, so a fact several outlets report outranks one outlet's aside;
-    position and source credibility break ties. Returns pool indices in
-    pick order.
+    Each pool item is {"text", "article", "source", "position", "credibility"},
+    where `article` identifies the source article, `source` its outlet, and
+    `position` is the sentence's index within that article's summary.
+    Relevance is mostly cross-outlet support, so a fact several outlets
+    report outranks one outlet's aside; position and source credibility
+    break ties. Returns pool indices in pick order.
     """
     n = len(pool)
     if n == 0:
         return []
 
-    # Support: for each other article, how far its closest sentence rises
+    # Support: for each other outlet, how far its closest sentence rises
     # above the topic's background similarity (75th percentile of
-    # cross-article pairs), averaged over those articles. Sentences that only
-    # share the topic's vocabulary stay near the background and score ~0.
-    cross = sorted(
-        sim[i][j] for i in range(n) for j in range(n) if pool[i]["article"] != pool[j]["article"]
-    )
+    # cross-outlet pairs), averaged over those outlets. Sentences that only
+    # share the topic's vocabulary stay near the background and score ~0,
+    # and text an outlet repeats across its own articles (page boilerplate,
+    # a recycled paragraph) gains nothing from the repetition.
+    outlet = [item.get("source", item["article"]) for item in pool]
+    cross = sorted(sim[i][j] for i in range(n) for j in range(n) if outlet[i] != outlet[j])
     background = cross[int(0.75 * (len(cross) - 1))] if cross else 0.0
     sentences_of: dict = defaultdict(list)
-    for j, item in enumerate(pool):
-        sentences_of[item["article"]].append(j)
+    for j in range(n):
+        sentences_of[outlet[j]].append(j)
     support = []
     for i in range(n):
-        others = [a for a in sentences_of if a != pool[i]["article"]]
-        lift = sum(max(0.0, max(sim[i][j] for j in sentences_of[a]) - background) for a in others)
+        others = [o for o in sentences_of if o != outlet[i]]
+        lift = sum(max(0.0, max(sim[i][j] for j in sentences_of[o]) - background) for o in others)
         support.append(lift / len(others) if others else 0.0)
     top = max(support) or 1.0
     relevance = [
@@ -417,7 +418,10 @@ def cluster_region(cluster: dict) -> str:
 
 
 def majority_region(articles: list[dict]) -> str:
-    """A topic's region: most of its articles' (ties go to U.S. news)."""
+    """A topic's region: most of its articles' (ties go to U.S. news). Each
+    article's own region comes from its outlet's URL section or feed, which
+    can disagree between outlets on the same story (Al Jazeera's feed is all
+    world news, for one)."""
     world = sum(1 for a in articles if a.get("region") == WORLD_REGION)
     return WORLD_REGION if world > len(articles) - world else US_REGION
 
@@ -727,6 +731,7 @@ class PoliteratePipeline:
                 pool.append({
                     "text": sentence,
                     "article": idx,
+                    "source": article.get("source", idx),
                     "position": position,
                     "credibility": credibility,
                 })
@@ -931,10 +936,16 @@ class PoliteratePipeline:
             sources = list(seen_sources.keys())
             source_urls = list(seen_sources.values())
 
+            # One region per story: every article takes its topic's, so the
+            # same story isn't tagged U.S. on one card and World on another.
+            region = majority_region(articles)
+            for a in articles:
+                a["region"] = region
+
             results.append({
                 "cluster_id": cluster_id,
                 "article_count": len(articles),
-                "region": majority_region(articles),
+                "region": region,
                 "sources": sources,
                 "urls": source_urls,
                 "titles": [a.get("title") for a in articles],

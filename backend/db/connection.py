@@ -74,12 +74,30 @@ def init_db() -> None:
     cursor.executescript(schema_sql)
 
     _apply_column_migrations(cursor)
+    _backfill_regions(cursor)
 
     cursor.executescript(_ARTICLE_INDEXES_SQL)
 
     conn.commit()
     conn.close()
     logger.info("Database initialized")
+
+
+def _backfill_regions(cursor) -> None:
+    """Tag articles and topics stored before regions existed. Back then every
+    feed was a U.S. politics or general news feed, so an article whose URL
+    names no world section counts as U.S. news, as untagged topics already
+    did in the Daily Brief."""
+    from backend.pipeline.rss_scraper import US, region_from_url
+
+    rows = cursor.execute("SELECT url FROM articles WHERE region IS NULL AND url IS NOT NULL").fetchall()
+    if rows:
+        cursor.executemany(
+            "UPDATE articles SET region = ? WHERE url = ?",
+            [(region_from_url(url) or US, url) for (url,) in rows],
+        )
+        logger.info(f"Tagged {len(rows)} articles stored before regions existed")
+    cursor.execute("UPDATE clusters SET region = ? WHERE region IS NULL", (US,))
 
 
 def _apply_column_migrations(cursor) -> None:

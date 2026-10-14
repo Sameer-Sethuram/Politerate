@@ -95,18 +95,26 @@ FEEDS = [
     Feed("CNN", BY_SECTION, google_news_feed("cnn.com")),
 ]
 
-# URL sections that mark an article's region, checked in order (so the
-# Independent's /world/americas/us-politics/ is U.S.).
+# URL sections that mark an article's region, checked in order.
 _REGION_SECTIONS = [
     (re.compile(r"/(us-politics|us-news|us|politics|nation|national)/", re.IGNORECASE), US),
-    (re.compile(r"/(world|world-news|international)/", re.IGNORECASE), WORLD),
+    (re.compile(r"/(world|world-news|international|uk-news)/", re.IGNORECASE), WORLD),
 ]
+# Outlets whose sections mean something else, checked before _REGION_SECTIONS.
+_REGION_SECTIONS_BY_HOST = {
+    # U.S. politics is under /us-news/; /politics/ is UK politics.
+    "theguardian.com": [(re.compile(r"/politics/"), WORLD)],
+    # U.S. news is filed under /news/world/americas/ (about four in five of
+    # its articles there are U.S. stories); UK news under /news/uk/.
+    "independent.co.uk": [(re.compile(r"/news/uk/"), WORLD), (re.compile(r"/news/world/americas/"), US)],
+}
 
 
 def region_from_url(url: str) -> Optional[str]:
-    path = urlparse(url).path
-    for pattern, region in _REGION_SECTIONS:
-        if pattern.search(path):
+    parsed = urlparse(url)
+    host = parsed.netloc.lower().removeprefix("www.")
+    for pattern, region in _REGION_SECTIONS_BY_HOST.get(host, []) + _REGION_SECTIONS:
+        if pattern.search(parsed.path):
             return region
     return None
 

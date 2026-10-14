@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react";
 import { Link, useParams } from "react-router";
 import { ArrowLeft, AlertCircle } from "lucide-react";
-import { Spinner, StateBox, AiBanner, SourceBadge, SectionLabel, Region, RegionTag } from "./shared";
+import {
+  Spinner, StateBox, AiBanner, SourceBadge, SectionLabel, PageContainer, Region, RegionTag,
+} from "./shared";
 import { ArticleBlock, ArticleEntry, AnalysisStatus, ClusterArticle } from "./ArticleBreakdown";
 import { DefinedTerm, DetailedSummary, KeyTermChips, TopicSummary } from "./TopicSummary";
 
@@ -70,7 +72,8 @@ export function ClusterPage() {
   return (
     <div>
       <AiBanner />
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
+      {/* Same width as the Daily Brief on the home page. */}
+      <PageContainer>
         {/* Back link */}
         <Link
           to="/"
@@ -191,7 +194,7 @@ export function ClusterPage() {
             </div>
           </div>
         )}
-      </div>
+      </PageContainer>
     </div>
   );
 }

@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { ExternalLink, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
 import {
-  Spinner, StateBox, LeanBadge, CredBadge, PageContainer, SectionLabel, Region, RegionTag,
+  Spinner, StateBox, LeanBadge, CredBadge, PageContainer, SectionLabel, Region, REGIONS,
+  RegionIcon, RegionTag,
 } from "./shared";
 
 interface Article {
@@ -14,7 +15,7 @@ interface Article {
   // Articles sharing a topic_id cover the same story (one topic cluster).
   topic_id: string | null;
   in_brief: boolean;
-  // Null for articles stored before regions existed.
+  // Null only for data saved before regions existed (counts as U.S.).
   region: Region | null;
   scraped_at: string;
 }
@@ -34,13 +35,18 @@ interface DayGroup {
 const DEFAULT_THRESHOLD = 0.6;
 // Top stories shown before "Show all", in full grid rows.
 const LEAD_ROWS_SHOWN = 2;
-// Cards stay roughly 230–300px wide as the page widens: 5 per row from
-// 1280px, 6 from 1536px.
-const GRID =
-  "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4";
+// At most 4 cards per row, from 1280px wide; wider screens get wider cards.
+const GRID = "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5";
 // GRID's breakpoints as [min-width in rem, columns], widest first. Media
 // queries resolve rem against the browser default, same as Tailwind's.
-const GRID_COLUMNS: Array<[number, number]> = [[96, 6], [80, 5], [64, 4], [48, 3], [40, 2]];
+const GRID_COLUMNS: Array<[number, number]> = [[80, 4], [64, 3], [40, 2]];
+
+const regionOf = (a: Article): Region => a.region ?? "us";
+
+/** ?region=us|world, or null for every article. */
+function parseRegion(value: string | null): Region | null {
+  return REGIONS.some(r => r.region === value) ? (value as Region) : null;
+}
 
 function currentGridColumns(): number {
   return GRID_COLUMNS.find(([rem]) => window.matchMedia(`(min-width: ${rem}rem)`).matches)?.[1] ?? 1;
@@ -101,7 +107,7 @@ function ArticleCard({
     <article className="bg-card border border-border rounded p-5 hover:shadow-sm transition-shadow flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
         <h3 className="text-lg font-medium leading-snug flex-1 min-w-0">
-          {article.region && <RegionTag region={article.region} className="mr-2 align-middle" />}
+          <RegionTag region={regionOf(article)} className="mr-2 align-middle" />
           <Link to={detailUrl} className="link">
             {article.title || "Untitled"}
           </Link>
@@ -242,6 +248,48 @@ function DaySection({
   );
 }
 
+function RegionFilter({
+  value,
+  counts,
+  onChange,
+}: {
+  value: Region | null;
+  counts: Record<Region | "all", number>;
+  onChange: (region: Region | null) => void;
+}) {
+  // Short labels on phones so the three options fit on one line.
+  const options = [
+    { region: null, label: "All", short: "All", count: counts.all },
+    ...REGIONS.map(r => ({ region: r.region, label: r.heading, short: r.label, count: counts[r.region] })),
+  ];
+  return (
+    <div role="group" aria-label="Filter by region" className="inline-flex flex-wrap gap-0.5 p-1 bg-secondary rounded">
+      {options.map(o => {
+        const active = o.region === value;
+        return (
+          <button
+            key={o.label}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onChange(o.region)}
+            className={[
+              "flex items-center gap-2 px-3 sm:px-4 py-2 rounded text-base font-medium transition-colors",
+              active ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+            ].join(" ")}
+          >
+            {o.region && <RegionIcon region={o.region} size={16} />}
+            <span className="sm:hidden">{o.short}</span>
+            <span className="hidden sm:inline">{o.label}</span>
+            <span className="text-sm text-muted-foreground" style={{ fontFamily: "var(--font-data)" }}>
+              {o.count}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function AllArticlesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -249,6 +297,18 @@ export function AllArticlesPage() {
   const [today, setToday] = useState("");
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD);
   const leadsShown = LEAD_ROWS_SHOWN * useGridColumns();
+  // ?region= keeps the filter across reloads, back/forward and shared links.
+  const [params, setParams] = useSearchParams();
+  const region = parseRegion(params.get("region"));
+
+  function selectRegion(next: Region | null) {
+    setParams(prev => {
+      const updated = new URLSearchParams(prev);
+      if (next) updated.set("region", next);
+      else updated.delete("region");
+      return updated;
+    }, { replace: true });
+  }
 
   useEffect(() => {
     (async () => {
@@ -267,9 +327,16 @@ export function AllArticlesPage() {
     })();
   }, []);
 
+  const counts = useMemo(() => {
+    const c: Record<Region | "all", number> = { all: articles.length, us: 0, world: 0 };
+    for (const a of articles) c[regionOf(a)] += 1;
+    return c;
+  }, [articles]);
+
   const days = useMemo(() => {
     const byDay = new Map<string, Article[]>();
     for (const a of articles) {
+      if (region && regionOf(a) !== region) continue;
       const day = a.scraped_at.slice(0, 10);
       if (!byDay.has(day)) byDay.set(day, []);
       byDay.get(day)!.push(a);
@@ -278,7 +345,7 @@ export function AllArticlesPage() {
       .sort()
       .reverse()
       .map(day => groupDay(day, byDay.get(day)!, threshold));
-  }, [articles, threshold]);
+  }, [articles, threshold, region]);
 
   return (
     <PageContainer wide>
@@ -299,6 +366,11 @@ export function AllArticlesPage() {
           first, sorted by credibility score, so no credible story gets buried — whether or not it
           made the Daily Brief.
         </p>
+        {!loading && !error && articles.length > 0 && (
+          <div className="mt-5">
+            <RegionFilter value={region} counts={counts} onChange={selectRegion} />
+          </div>
+        )}
       </div>
 
       {loading && (
@@ -317,7 +389,11 @@ export function AllArticlesPage() {
 
       {!loading && !error && days.length === 0 && (
         <StateBox>
-          <p>No articles from the past 7 days yet.</p>
+          <p>
+            {articles.length > 0 && region
+              ? `No ${REGIONS.find(r => r.region === region)?.heading} articles from the past 7 days.`
+              : "No articles from the past 7 days yet."}
+          </p>
         </StateBox>
       )}
 

@@ -70,7 +70,8 @@ export function AiBanner() {
 
 // ─── Region ───────────────────────────────────────────────────────────────────
 
-/** "us" / "world", from the feed an article came from. Older data has none. */
+/** "us" / "world". A topic's articles share its region. Data saved before
+ *  regions existed may have none; it counts as U.S. news. */
 export type Region = "us" | "world";
 
 export const REGIONS: Array<{ region: Region; label: string; heading: string }> = [
