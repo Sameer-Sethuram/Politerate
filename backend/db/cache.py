@@ -16,7 +16,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
-from backend.config import CACHE_MAX_AGE_HOURS
+from backend.config import CACHE_MAX_AGE_HOURS, TIMEZONE, site_now
 from backend.db.connection import get_connection, init_db, get_db_path
 
 logger = logging.getLogger(__name__)
@@ -132,7 +132,7 @@ def save_articles(articles: list[dict]) -> int:
     conn = get_connection()
     cursor = conn.cursor()
     saved = 0
-    now = datetime.now().isoformat()
+    now = site_now().isoformat()
 
     for article in articles:
         credibility = article.get("credibility", {})
@@ -196,7 +196,7 @@ def save_unclustered_articles(articles: list[dict]) -> int:
     conn = get_connection()
     cursor = conn.cursor()
     saved = 0
-    now = datetime.now().isoformat()
+    now = site_now().isoformat()
 
     for article in articles:
         analysis = article.get("_analysis") or {}
@@ -293,7 +293,7 @@ def save_clusters(clusters: list[dict]) -> int:
             json.dumps(cluster.get("titles", [])),
             json.dumps(cluster.get("defined_terms", [])),
             cluster.get("article_count", 0),
-            datetime.now().isoformat(),
+            site_now().isoformat(),
             cluster.get("region"),
         ))
 
@@ -320,14 +320,14 @@ def save_clusters(clusters: list[dict]) -> int:
                 article.get("credibility", {}).get("score", 1.0),
                 article.get("credibility", {}).get("bias_label", "unknown"),
                 str(cluster.get("cluster_id", "")),
-                datetime.now().isoformat(),
+                site_now().isoformat(),
                 json.dumps(analysis.get("chunks")) if has_analysis else None,
                 json.dumps(article_agg) if has_analysis else None,
                 article_agg.get("dominant_bias"),
                 article_agg.get("dominant_emotion"),
                 article_agg.get("subjectivity_ratio"),
                 "done" if has_analysis else "pending",
-                datetime.now().isoformat() if has_analysis else None,
+                site_now().isoformat() if has_analysis else None,
                 article_summary,
                 "bart-news" if article_summary else None,
                 article.get("summarized_at") if article_summary else None,
@@ -351,11 +351,14 @@ def save_clusters(clusters: list[dict]) -> int:
 
 
 def update_last_refresh() -> None:
+    # With its UTC offset, unlike the other timestamps: the frontend shows it
+    # as "Updated N ago", and a browser reads a time without a zone as the
+    # viewer's own local time.
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
         INSERT OR REPLACE INTO metadata (key, value) VALUES ('last_refresh', ?)
-    """, (datetime.now().isoformat(),))
+    """, (datetime.now(TIMEZONE).isoformat(),))
     conn.commit()
     conn.close()
 
@@ -376,16 +379,19 @@ def is_stale() -> bool:
 
     try:
         last_time = datetime.fromisoformat(last_refresh)
-        age_hours = (datetime.now() - last_time).total_seconds() / 3600
-        return age_hours >= CACHE_MAX_AGE_HOURS
     except (ValueError, TypeError):
         return True
+    if last_time.tzinfo is None:
+        # Written on the server's clock before refresh times carried a zone.
+        return True
+    age_hours = (datetime.now(TIMEZONE) - last_time).total_seconds() / 3600
+    return age_hours >= CACHE_MAX_AGE_HOURS
 
 
 def today_str() -> str:
-    """Server-local date that 'today' means everywhere (summaries, All
-    Articles page, daily snapshot keys)."""
-    return datetime.now().strftime("%Y-%m-%d")
+    """The date that 'today' means everywhere (summaries, All Articles page,
+    daily snapshot keys), on the site's clock (config.TIMEZONE)."""
+    return site_now().strftime("%Y-%m-%d")
 
 
 def get_cached_summaries() -> dict:
@@ -607,7 +613,7 @@ def save_article_summary(article: dict) -> None:
         article.get("text", ""),
         credibility.get("score"),
         credibility.get("bias_label", "unknown"),
-        datetime.now().isoformat(),
+        site_now().isoformat(),
         article["summary"],
         article.get("summarized_at"),
         article.get("region"),
@@ -708,7 +714,7 @@ def get_recent_articles(hours: int = 24) -> list[dict]:
     all of it (as get_all_articles does) gets slower every hour."""
     # scraped_at is always written as datetime.isoformat(), so string
     # comparison against an isoformat cutoff is chronological.
-    cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
+    cutoff = (site_now() - timedelta(hours=hours)).isoformat()
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -798,7 +804,7 @@ def mark_urls_seen(urls: list[str]) -> None:
         return
     conn = get_connection()
     cursor = conn.cursor()
-    now = datetime.now().isoformat()
+    now = site_now().isoformat()
     for url in urls:
         cursor.execute("""
             INSERT INTO seen_urls (url, first_seen, last_seen) VALUES (?, ?, ?)
@@ -813,7 +819,7 @@ def archive_articles(articles: list[dict]) -> int:
         return 0
     conn = get_connection()
     cursor = conn.cursor()
-    now = datetime.now().isoformat()
+    now = site_now().isoformat()
     saved = 0
     for a in articles:
         url = a.get("url", "")
@@ -882,10 +888,10 @@ def get_archived_articles(urls: list[str]) -> dict:
 def prune_archive(days: int = 7) -> int:
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        DELETE FROM scraped_articles_archive
-        WHERE scraped_at < datetime('now', ?)
-    """, (f"-{days} days",))
+    # Same format and clock as the stored scraped_at, unlike SQLite's
+    # datetime('now'), which is UTC and has no "T".
+    cutoff = (site_now() - timedelta(days=days)).isoformat()
+    cursor.execute("DELETE FROM scraped_articles_archive WHERE scraped_at < ?", (cutoff,))
     removed = cursor.rowcount
     conn.commit()
     conn.close()
@@ -936,7 +942,7 @@ def save_daily_snapshot(date_str: Optional[str] = None) -> bool:
         total_articles,
         len(clusters),
         len(all_sources),
-        datetime.now().isoformat(),
+        site_now().isoformat(),
     ))
     conn.commit()
     conn.close()

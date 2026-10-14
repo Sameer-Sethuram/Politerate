@@ -358,6 +358,15 @@ export function getTopicIcon(text: string): string {
   return TOPIC_ICONS.default;
 }
 
+/** The site's clock (backend config.TIMEZONE): days change at midnight Eastern. */
+export const SITE_TIME_ZONE = "America/New_York";
+
+/** Today's date on the site's clock, as YYYY-MM-DD. */
+export function siteToday(): string {
+  // en-CA formats dates as YYYY-MM-DD.
+  return new Date().toLocaleDateString("en-CA", { timeZone: SITE_TIME_ZONE });
+}
+
 export function formatRelativeDate(iso?: string): string {
   if (!iso) return "Just now";
   const diff = Date.now() - new Date(iso).getTime();

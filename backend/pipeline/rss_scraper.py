@@ -14,13 +14,14 @@ to the publisher's own URL before scraping.
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime
 from email.utils import parsedate_to_datetime
 from typing import Optional
 from urllib.parse import quote, urlparse
 
 import feedparser
 import requests
+
+from backend.config import TIMEZONE, site_now
 
 # ------------------------------------------------------------
 # RSS FEEDS (Top Stories Only)
@@ -195,10 +196,12 @@ def parse_date(entry):
     return None
 
 def is_today(dt):
+    """Published today on the site's clock. On the server's own clock (UTC)
+    the day turned over at 8 p.m. Eastern, and the evening's runs kept only
+    articles published after that."""
     if dt is None:
         return False
-    today = datetime.now().date()
-    return dt.astimezone().date() == today
+    return dt.astimezone(TIMEZONE).date() == site_now().date()
 
 # ------------------------------------------------------------
 # URL Filtering

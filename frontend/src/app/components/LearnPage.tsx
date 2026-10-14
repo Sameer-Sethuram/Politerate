@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router";
 import { Flame, AlertCircle } from "lucide-react";
-import { Spinner, StateBox, PageContainer, SectionLabel } from "./shared";
+import { Spinner, StateBox, PageContainer, SectionLabel, siteToday } from "./shared";
 
 interface ArticleSnippet {
   snippet: string;
@@ -49,8 +49,10 @@ const STREAK_KEY = "politerate_streak";
 const LAST_PLAY_KEY = "politerate_last_play";
 const HIGH_SCORE_KEY = "politerate_high_score";
 
+// Streak days follow the site's clock; toISOString() is UTC, whose day
+// changes at 8 p.m. Eastern.
 function todayStr() {
-  return new Date().toISOString().slice(0, 10);
+  return siteToday();
 }
 
 function loadStreak(): number {

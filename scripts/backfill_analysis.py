@@ -17,7 +17,6 @@ import json
 import logging
 import sys
 import time
-from datetime import datetime
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,6 +24,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("backfill")
 
+from backend.config import site_now
 from backend.db.connection import get_connection
 from backend.inference import get_analyzer
 
@@ -57,7 +57,7 @@ def write_analysis(article_id: int, full_result: dict) -> None:
     """Persist analyzer output back to the article row."""
     chunks = full_result.get("chunks") or []
     article_agg = full_result.get("article") or {}
-    now = datetime.now().isoformat()
+    now = site_now().isoformat()
 
     conn = get_connection()
     cur = conn.cursor()

@@ -38,7 +38,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from backend.config import BACKUP_DIR, DB_PATH
+from backend.config import BACKUP_DIR, DB_PATH, site_now
 from backend.db.connection import BUSY_TIMEOUT_SECONDS
 
 logging.basicConfig(
@@ -94,7 +94,7 @@ def backup(db_path: Path, backup_dir: Path, label: str = "") -> Path:
             f"{MIN_FREE_AFTER_BACKUP_BYTES / 1024**2:.0f} MB must stay free"
         )
 
-    name = f"politerate-{datetime.now().strftime(_TIME_FORMAT)}{'-' + label if label else ''}.db"
+    name = f"politerate-{site_now().strftime(_TIME_FORMAT)}{'-' + label if label else ''}.db"
     final = backup_dir / name
     partial = backup_dir / (name + ".partial")
     try:
@@ -158,7 +158,7 @@ def main(argv=None) -> int:
         f"({path.stat().st_size / 1024**2:.1f} MB, {time.time() - started:.1f}s)"
     )
 
-    for old in rotate(args.dir, datetime.now()):
+    for old in rotate(args.dir, site_now()):
         logger.info(f"Deleted old backup {old.name}")
     kept = sorted(p.name for p in args.dir.iterdir() if backup_time(p))
     logger.info(f"{len(kept)} backups in {args.dir}: oldest {kept[0]}, newest {kept[-1]}")

@@ -2,11 +2,11 @@
 
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from flask import Blueprint, jsonify, request
 
-from backend.config import CREDIBILITY_THRESHOLD
+from backend.config import CREDIBILITY_THRESHOLD, site_now
 from backend.db.cache import get_archive_day, get_cached_summaries, get_cluster, is_stale, today_str
 from backend.db.connection import get_connection
 
@@ -118,7 +118,7 @@ def _topics_by_day(days: list[str], today: str) -> tuple[dict, set]:
 @articles_bp.route("/api/all-articles")
 def get_all_articles():
     today = today_str()
-    now = datetime.now()
+    now = site_now()
     days = [(now - timedelta(days=n)).strftime("%Y-%m-%d") for n in range(ALL_ARTICLES_PAST_DAYS + 1)]
     since = days[-1]
 

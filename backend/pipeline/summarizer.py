@@ -19,13 +19,13 @@ import logging
 import math
 import re
 from collections import Counter, defaultdict
-from datetime import datetime
 from typing import Callable, Optional
 
 from backend.pipeline.preprocessor import preprocess_batch
 from backend.pipeline.clustering import cluster_articles, ArticleClusterer, DEFAULT_SIMILARITY_THRESHOLD
 from backend.pipeline.credibility import filter_by_credibility
 from backend.pipeline.highlighter import TermHighlighter
+from backend.config import site_now
 logging.basicConfig(
     level=logging.INFO,
     format="[%(levelname)s] %(message)s"
@@ -661,7 +661,7 @@ class PoliteratePipeline:
         if not summary or summary.startswith("["):
             return ""
         article["summary"] = summary
-        article["summarized_at"] = datetime.now().isoformat()
+        article["summarized_at"] = site_now().isoformat()
         try:
             from backend.db.cache import save_article_summary
             save_article_summary(article)
