@@ -371,11 +371,7 @@
             return;
         }
         if (!entry.analysis) {
-            const pending = entry.analysis_status === 'pending';
-            const msg = pending
-                ? 'Analysis pending — this article hasn’t been processed yet. Refresh after the next pipeline run.'
-                : 'No cached analysis available for this article.';
-            slot.innerHTML = `<div class="chunks-empty">${msg}</div>`;
+            slot.innerHTML = `<div class="chunks-empty">Article text too short to analyze.</div>`;
             return;
         }
 

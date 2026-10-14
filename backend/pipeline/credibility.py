@@ -14,6 +14,7 @@ Public API (preserved from the old top-level `credibility.py`):
 """
 
 import logging
+from typing import Optional
 
 from backend.config import CREDIBILITY_THRESHOLD
 from backend.inference import get_analyzer
@@ -35,9 +36,12 @@ class CredibilityChecker:
     def _analyzer_impl(self, analyzer, text: str) -> tuple[dict, dict]:
         """Returns (credibility_dict, full_analyzer_result).
 
-        score = 1 - subjectivity_ratio (more loaded/emotional = less credible).
         The full result carries chunk-level predictions for downstream storage."""
         result = analyzer.predict_article(text)
+        return self._credibility_from_result(result), result
+
+    def _credibility_from_result(self, result: dict) -> dict:
+        """score = 1 - subjectivity_ratio (more loaded/emotional = less credible)."""
         article = result.get("article") or {}
         subj = float(article.get("subjectivity_ratio") or 0.0)
         score = max(0.0, min(1.0, 1.0 - subj))
@@ -59,7 +63,7 @@ class CredibilityChecker:
             "bias_label": article.get("dominant_bias") or "unknown",
             "confidence": round(confidence, 3),
         }
-        return credibility, result
+        return credibility
 
     def check(self, article: dict) -> dict:
         text = article.get("text", "")
@@ -94,9 +98,21 @@ class CredibilityChecker:
                 "passed": False,
             }
 
-    def filter_articles(self, articles: list[dict]) -> tuple[list[dict], list[dict]]:
+    def filter_articles(
+        self,
+        articles: list[dict],
+        cached_analyses: Optional[dict] = None,
+    ) -> tuple[list[dict], list[dict]]:
+        """`cached_analyses` maps url -> stored analyzer result ({"chunks",
+        "article"}). Articles stay in the feeds for hours, so reusing the
+        result from an earlier run skips re-running the model on each one
+        every hour."""
+        cached_analyses = cached_analyses or {}
         passed, failed = [], []
-        logger.info(f"Checking credibility of {len(articles)} articles")
+        logger.info(
+            f"Checking credibility of {len(articles)} articles "
+            f"({sum(1 for a in articles if a.get('url') in cached_analyses)} already analyzed)"
+        )
         for article in articles:
             text = article.get("text", "")
             url = article.get("url", "unknown")
@@ -115,7 +131,11 @@ class CredibilityChecker:
                 continue
 
             try:
-                credibility, full_result = self._impl(text)
+                if url in cached_analyses:
+                    full_result = cached_analyses[url]
+                    credibility = self._credibility_from_result(full_result)
+                else:
+                    credibility, full_result = self._impl(text)
                 credibility["url"] = url
                 credibility["passed"] = credibility["score"] >= self.threshold
                 article["credibility"] = credibility
@@ -144,5 +164,8 @@ def check_credibility(article: dict) -> dict:
     return CredibilityChecker().check(article)
 
 
-def filter_by_credibility(articles: list[dict]) -> tuple[list[dict], list[dict]]:
-    return CredibilityChecker().filter_articles(articles)
+def filter_by_credibility(
+    articles: list[dict],
+    cached_analyses: Optional[dict] = None,
+) -> tuple[list[dict], list[dict]]:
+    return CredibilityChecker().filter_articles(articles, cached_analyses)

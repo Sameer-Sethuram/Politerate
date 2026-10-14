@@ -2,14 +2,19 @@
 
 import json
 import logging
+from datetime import timedelta
 
 from flask import Blueprint, jsonify, request
 
-from backend.db.cache import get_cached_summaries, get_cluster, is_stale
+from backend.config import CREDIBILITY_THRESHOLD, site_now
+from backend.db.cache import get_archive_day, get_cached_summaries, get_cluster, is_stale, today_str
 from backend.db.connection import get_connection
 
 articles_bp = Blueprint("articles", __name__)
 logger = logging.getLogger(__name__)
+
+# All Articles page shows today plus this many previous days.
+ALL_ARTICLES_PAST_DAYS = 7
 
 
 @articles_bp.route("/api/summaries")
@@ -48,7 +53,7 @@ def api_article_analysis():
     cursor.execute("""
         SELECT url, title, source, text, credibility_score, credibility_label,
                analysis_json, article_json, bias_label, dominant_emotion,
-               subjectivity_ratio, analysis_status, analyzed_at
+               subjectivity_ratio, analysis_status, analyzed_at, region
         FROM articles WHERE url = ?
     """, (url,))
     row = cursor.fetchone()
@@ -76,30 +81,67 @@ def api_article_analysis():
         "subjectivity_ratio": row["subjectivity_ratio"],
         "analysis_status": row["analysis_status"],
         "analyzed_at": row["analyzed_at"],
+        "region": row["region"],
         "chunks": _parse(row["analysis_json"]),
         "article_summary": _parse(row["article_json"]),
         "text": row["text"],
     })
 
 
+def _topics_by_day(days: list[str], today: str) -> tuple[dict, set]:
+    """Map (day, url) -> topic id, and collect the (day, url) pairs whose
+    topic made that day's Daily Brief.
+
+    Cluster IDs are reassigned on every pipeline run and older articles are
+    unlinked from them, so each past day's grouping comes from that day's
+    snapshot; today's comes from the live clusters.
+    """
+    from backend.pipeline.summarizer import select_brief_clusters
+
+    topic_of: dict = {}
+    in_brief: set = set()
+    for day in days:
+        if day == today:
+            clusters = get_cached_summaries().get("clusters", [])
+        else:
+            clusters = (get_archive_day(day) or {}).get("clusters", [])
+        brief_ids = {str(c.get("cluster_id")) for c in select_brief_clusters(clusters)}
+        for cluster in clusters:
+            cluster_id = str(cluster.get("cluster_id"))
+            for url in cluster.get("urls") or []:
+                topic_of[(day, url)] = f"{day}:{cluster_id}"
+                if cluster_id in brief_ids:
+                    in_brief.add((day, url))
+    return topic_of, in_brief
+
+
 @articles_bp.route("/api/all-articles")
 def get_all_articles():
+    today = today_str()
+    now = site_now()
+    days = [(now - timedelta(days=n)).strftime("%Y-%m-%d") for n in range(ALL_ARTICLES_PAST_DAYS + 1)]
+    since = days[-1]
+
+    # Plain string comparison (not date()) so idx_articles_scraped_at applies;
+    # scraped_at is ISO-formatted, so "YYYY-MM-DDT..." >= "YYYY-MM-DD" works.
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
         SELECT url, title, source, credibility_score, credibility_label,
-               bias_label, analysis_status, cluster_id, scraped_at
+               bias_label, analysis_status, scraped_at, region
         FROM articles
         WHERE url IS NOT NULL AND url != ''
+          AND scraped_at >= ?
         ORDER BY scraped_at DESC
-    """)
+    """, (since,))
     rows = cursor.fetchall()
     conn.close()
 
+    topic_of, in_brief = _topics_by_day(days, today)
+
     articles = []
     for row in rows:
-        cid = row["cluster_id"] or ""
-        in_summary = bool(cid) and not cid.startswith("singleton_")
+        day = (row["scraped_at"] or "")[:10]
         lean = next(
             (v for v in (row["credibility_label"], row["bias_label"])
              if v and v != "unknown"),
@@ -112,11 +154,21 @@ def get_all_articles():
             "credibility_score": row["credibility_score"],
             "lean": lean,
             "analysis_status": row["analysis_status"],
-            "in_summary": in_summary,
+            # Articles sharing a topic_id cover the same story; null means
+            # the article stood alone (or failed the credibility filter).
+            "topic_id": topic_of.get((day, row["url"])),
+            "in_brief": (day, row["url"]) in in_brief,
+            # "us" / "world"; null for articles stored before regions existed
+            "region": row["region"],
             "scraped_at": row["scraped_at"],
         })
 
-    return jsonify({"articles": articles, "total": len(articles)})
+    return jsonify({
+        "articles": articles,
+        "total": len(articles),
+        "today": today,
+        "credibility_threshold": CREDIBILITY_THRESHOLD,
+    })
 
 
 @articles_bp.route("/api/cluster/<cluster_id>/analysis")

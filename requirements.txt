@@ -16,6 +16,8 @@ huggingface_hub>=0.20.0
 sentencepiece>=0.2.1
 protobuf>=7.34.1
 gunicorn>=25.3.0
+# Time zone data for zoneinfo (the site's Eastern clock); Windows has none built in.
+tzdata>=2024.1
 # Required ONLY when the real credibility analyzer runs (not for mock mode).
 # After `pip install`ing this, also run:
 #   python -m spacy download en_core_web_sm

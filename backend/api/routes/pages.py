@@ -1,50 +1,37 @@
-"""HTML page routes (Jinja templates)."""
+"""Serves the React frontend build (frontend/dist).
 
-from flask import Blueprint, render_template
+Every non-API path returns index.html so React Router can handle client-side
+routes (/glossary, /cluster/<id>, ...). Built assets under dist/ are served
+directly. /api/* routes are registered on their own blueprints and take
+precedence over the catch-all.
+"""
 
-from backend.db.cache import get_cluster
+import os
+
+from flask import Blueprint, abort, send_from_directory
+from werkzeug.security import safe_join
+
+from backend.config import FRONTEND_DIST_DIR
 
 pages_bp = Blueprint("pages", __name__)
 
 
-@pages_bp.route("/")
-def index():
-    return render_template("index.html")
+@pages_bp.route("/", defaults={"path": ""})
+@pages_bp.route("/<path:path>")
+def spa(path):
+    # Unknown API paths should 404, not fall through to the SPA shell.
+    if path.startswith("api/"):
+        abort(404)
 
+    if path:
+        asset = safe_join(str(FRONTEND_DIST_DIR), path)
+        if asset and os.path.isfile(asset):
+            return send_from_directory(FRONTEND_DIST_DIR, path)
 
-@pages_bp.route("/glossary")
-def glossary():
-    return render_template("glossary.html")
-
-
-@pages_bp.route("/archive")
-def archive():
-    return render_template("archive.html")
-
-
-@pages_bp.route("/learn")
-def learn():
-    return render_template("learn.html")
-
-
-@pages_bp.route("/analyzer")
-def analyzer():
-    return render_template("analyzer.html")
-
-
-@pages_bp.route("/all-articles")
-def all_articles():
-    return render_template("all_articles.html")
-
-
-@pages_bp.route("/article")
-def article_detail():
-    return render_template("article_detail.html")
-
-
-@pages_bp.route("/cluster/<cluster_id>")
-def cluster_detail(cluster_id):
-    cluster = get_cluster(cluster_id)
-    if not cluster:
-        return render_template("cluster.html", cluster=None, cluster_id=cluster_id), 404
-    return render_template("cluster.html", cluster=cluster, cluster_id=cluster_id)
+    if not (FRONTEND_DIST_DIR / "index.html").is_file():
+        return (
+            "Frontend not built. Run `npm install && npm run build` in frontend/.",
+            503,
+            {"Content-Type": "text/plain; charset=utf-8"},
+        )
+    return send_from_directory(FRONTEND_DIST_DIR, "index.html", max_age=0)

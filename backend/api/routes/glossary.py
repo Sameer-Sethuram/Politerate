@@ -2,7 +2,7 @@
 
 from flask import Blueprint, jsonify, request
 
-from backend.db.cache import get_all_articles
+from backend.db.cache import get_recent_articles
 
 glossary_bp = Blueprint("glossary", __name__)
 
@@ -17,8 +17,8 @@ def get_glossary():
     highlighter = TermHighlighter()
     glossary = highlighter.glossary
 
-    all_articles = get_all_articles()
-    term_sources = highlighter.find_terms_with_sources(all_articles)
+    # Today's news only (the page says "No sources found for this term today").
+    term_sources = highlighter.find_terms_with_sources(get_recent_articles())
 
     terms = []
     for term, info in glossary.items():

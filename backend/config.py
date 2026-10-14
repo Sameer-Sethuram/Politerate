@@ -7,7 +7,9 @@ Sarah's `backend/config.py` convention on `app_branch`.
 """
 
 import os
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 # Project root = parent of backend/ = the repo root.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -18,8 +20,15 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = PROJECT_ROOT / "templates"
 STATIC_DIR = PROJECT_ROOT / "static"
 
+# React/TypeScript frontend build output (`npm run build` in frontend/).
+FRONTEND_DIST_DIR = PROJECT_ROOT / "frontend" / "dist"
+
 # SQLite cache. Kept at project root so existing DBs aren't orphaned.
 DB_PATH = PROJECT_ROOT / "politerate.db"
+
+# Nightly database backups (scripts/backup_db.py). Outside the repo so
+# re-cloning or `git clean` can't delete them.
+BACKUP_DIR = Path(os.environ.get("POLITERATE_BACKUP_DIR", Path.home() / "politerate_backups"))
 
 # Where the fine-tuned BART summarizer lives locally (for dev machines that
 # trained it). Falls back to HF Hub when missing.
@@ -56,6 +65,20 @@ CORS_ORIGINS = os.environ.get(
 CACHE_MAX_AGE_HOURS = int(os.environ.get("POLITERATE_CACHE_HOURS", "1"))
 
 CREDIBILITY_THRESHOLD = float(os.environ.get("POLITERATE_CREDIBILITY_THRESHOLD", "0.6"))
+
+# The site's clock, whatever the server's own time zone (DigitalOcean
+# droplets run on UTC, which made the day change at 8 p.m. Eastern). It
+# decides what "today" is (the feeds' articles, the live topics, the Articles
+# page's days, archive dates), when the end-of-day snapshot runs, and the
+# stored timestamps. America/New_York switches between EST and EDT.
+TIMEZONE = ZoneInfo(os.environ.get("POLITERATE_TIMEZONE", "America/New_York"))
+
+
+def site_now() -> datetime:
+    """The current time on the site's clock, without a zone attached: the
+    form timestamps are stored in, so SQLite's date() and plain string
+    comparisons read them as the site's dates and times."""
+    return datetime.now(TIMEZONE).replace(tzinfo=None)
 
 
 def analyzer_weights_path() -> Path:

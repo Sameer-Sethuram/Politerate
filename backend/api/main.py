@@ -19,6 +19,7 @@ from backend.config import (
     CORS_ORIGINS,
     STATIC_DIR,
     TEMPLATES_DIR,
+    TIMEZONE,
 )
 from backend.db.cache import is_stale
 from backend.db.connection import init_db
@@ -34,7 +35,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _model = None
 _tokenizer = None
-scheduler = BackgroundScheduler()
+# On the site's clock, so the 23:55 snapshot runs at 11:55 p.m. Eastern
+# rather than the server's 23:55.
+scheduler = BackgroundScheduler(timezone=TIMEZONE)
 
 
 def create_app() -> Flask:
@@ -210,4 +213,4 @@ def initialize():
 
     if is_stale():
         logger.info("Cache is stale on startup - queuing immediate pipeline run...")
-        scheduler.get_job("pipeline_refresh").modify(next_run_time=datetime.now())
+        scheduler.get_job("pipeline_refresh").modify(next_run_time=datetime.now(TIMEZONE))

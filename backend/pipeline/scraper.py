@@ -6,6 +6,8 @@ full article content from each link. It compiles the results into a dictionary
 mapping URLs to extracted article data.
 """
 
+from urllib.parse import urlparse
+
 import requests
 from newspaper import Article
 from readability import Document
@@ -14,6 +16,21 @@ from bs4 import BeautifulSoup
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; NewsScraper/1.0)"
 }
+
+# Publishers whose article pages turn away scrapers but who publish AMP
+# copies served by Google's AMP cache. Those copies are fetched instead; the
+# stored URL stays the publisher's.
+AMP_CACHE_HOSTS = {"thehill.com"}
+
+
+def fetch_url_for(url):
+    """Where to download `url` from: its AMP cache copy for AMP_CACHE_HOSTS,
+    otherwise the URL itself."""
+    parts = urlparse(url)
+    if parts.netloc not in AMP_CACHE_HOSTS:
+        return url
+    cache_host = parts.netloc.replace("-", "--").replace(".", "-")
+    return f"https://{cache_host}.cdn.ampproject.org/c/s/{parts.netloc}{parts.path.rstrip('/')}/amp/"
 
 # ------------------------------------------------------------
 # Basic HTML fetcher
@@ -39,9 +56,11 @@ def extract_article(url):
     Uses newspaper3k first, then readability as fallback.
     Returns a dictionary with article metadata.
     """
+    download_url = fetch_url_for(url)
+
     # Try newspaper3k first
     try:
-        article = Article(url)
+        article = Article(download_url)
         article.download()
         article.parse()
 
@@ -56,7 +75,7 @@ def extract_article(url):
         pass  # Fall back to readability
 
     # Fallback: readability-lxml
-    html = fetch(url)
+    html = fetch(download_url)
     if not html:
         return None
 
