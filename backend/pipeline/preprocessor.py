@@ -5,7 +5,8 @@ Prepares scraped article text for the summarizer pipeline:
 - Cleans and normalizes text
 - Validates article quality
 - Splits title from body
-- Truncates to model token limit
+- Truncates to model token limit (`text`, for clustering and summarizing),
+  keeping the whole article as well (`full_text`, stored, shown and analyzed)
 """
 
 import re
@@ -19,7 +20,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 MIN_TEXT_LENGTH = 200
+# `text` is cut to BART's input window (about 4,000 characters). Clustering
+# was tuned on it and summaries are budgeted by its length, so both keep
+# using the cut text.
 MAX_TOKENS = 1024
+# `full_text` is the whole article: what's stored, shown and analyzed. Capped
+# (about 20,000 characters, ~3,300 words) for pages like live blogs that run
+# far longer than any article, since analysis time grows with length.
+FULL_TEXT_MAX_TOKENS = 5000
 
 _BOILERPLATE = re.compile(
     r"(subscribe|sign[\s-]?up|log[\s-]?in|already a (subscriber|member)|"
@@ -171,12 +179,14 @@ def preprocess_single(article: dict) -> dict | None:
     title, body = split_title_body(cleaned_text, raw_title)
 
     truncated_body = truncate_to_length(body)
+    full_body = truncate_to_length(body, FULL_TEXT_MAX_TOKENS)
 
     prepended_text = f"{title}. {truncated_body}" if title else truncated_body
 
     return {
         "title": title,
         "text": prepended_text,
+        "full_text": f"{title}. {full_body}" if title else full_body,
         "url": url,
         "source": article.get("source", "unknown"),
         "region": article.get("region"),

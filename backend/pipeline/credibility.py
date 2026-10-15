@@ -21,6 +21,31 @@ from backend.inference import get_analyzer
 
 logger = logging.getLogger(__name__)
 
+# A stored analysis is reused only if its chunks cover at least this share
+# of the article's text. The chunker drops a little boilerplate, so a full
+# analysis covers nearly all of it; ones made before the full article was
+# kept cover only its first ~4,000 characters.
+ANALYSIS_COVERAGE = 0.8
+# Most stored analyses rerun per filter pass (a pipeline run makes two), so
+# upgrading the ones made on cut text spreads over several runs instead of
+# pinning the shared CPU on the first one after a deploy.
+MAX_REANALYSES = 25
+
+
+def analysis_text(article: dict) -> str:
+    """The text to analyze: the whole article (preprocessor `full_text`),
+    else the text the article has."""
+    return article.get("full_text") or article.get("text", "")
+
+
+def covers(analysis: dict, text: str) -> bool:
+    """Whether a stored analysis was run on (about) all of `text`."""
+    chunks = analysis.get("chunks") or []
+    if not chunks:
+        return True  # nothing to measure; rerunning wouldn't tell us more
+    analyzed = sum(len(c.get("text") or "") for c in chunks)
+    return analyzed >= ANALYSIS_COVERAGE * len(text)
+
 
 class CredibilityChecker:
     def __init__(self, threshold: float = CREDIBILITY_THRESHOLD):
@@ -66,7 +91,7 @@ class CredibilityChecker:
         return credibility
 
     def check(self, article: dict) -> dict:
-        text = article.get("text", "")
+        text = analysis_text(article)
         url = article.get("url", "unknown")
 
         if not text:
@@ -106,15 +131,17 @@ class CredibilityChecker:
         """`cached_analyses` maps url -> stored analyzer result ({"chunks",
         "article"}). Articles stay in the feeds for hours, so reusing the
         result from an earlier run skips re-running the model on each one
-        every hour."""
+        every hour. A stored result that doesn't cover the whole article
+        (made on the old cut text) is rerun, up to MAX_REANALYSES a pass."""
         cached_analyses = cached_analyses or {}
+        reanalyses_left = MAX_REANALYSES
         passed, failed = [], []
         logger.info(
             f"Checking credibility of {len(articles)} articles "
             f"({sum(1 for a in articles if a.get('url') in cached_analyses)} already analyzed)"
         )
         for article in articles:
-            text = article.get("text", "")
+            text = analysis_text(article)
             url = article.get("url", "unknown")
 
             if not text:
@@ -131,10 +158,13 @@ class CredibilityChecker:
                 continue
 
             try:
-                if url in cached_analyses:
-                    full_result = cached_analyses[url]
+                cached = cached_analyses.get(url)
+                if cached and (reanalyses_left <= 0 or covers(cached, text)):
+                    full_result = cached
                     credibility = self._credibility_from_result(full_result)
                 else:
+                    if cached:
+                        reanalyses_left -= 1
                     credibility, full_result = self._impl(text)
                 credibility["url"] = url
                 credibility["passed"] = credibility["score"] >= self.threshold
@@ -156,7 +186,11 @@ class CredibilityChecker:
             if not article["credibility"]["passed"]:
                 logger.info(f"Filtered {url}: {article['credibility']['reasons']}")
 
-        logger.info(f"Credibility filter: {len(passed)} passed, {len(failed)} failed")
+        reanalyzed = MAX_REANALYSES - reanalyses_left
+        logger.info(
+            f"Credibility filter: {len(passed)} passed, {len(failed)} failed"
+            + (f" ({reanalyzed} reanalyzed on the full article)" if reanalyzed else "")
+        )
         return passed, failed
 
 

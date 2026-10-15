@@ -42,6 +42,7 @@ logger = logging.getLogger("backfill_summaries")
 from backend.config import BART_MODEL_PATH
 from backend.db.cache import get_snapshot, list_snapshot_dates
 from backend.db.connection import get_connection, init_db
+from backend.pipeline.preprocessor import truncate_to_length
 from backend.pipeline.summarizer import PoliteratePipeline
 
 # The pipeline only clusters articles with real text; mirror its minimum.
@@ -73,7 +74,10 @@ def load_articles(urls: list[str]) -> list[dict]:
             "url": row["url"],
             "title": row["title"],
             "source": row["source"],
-            "text": row["text"],
+            # The stored text is the whole article; summaries are made from
+            # the same cut the pipeline summarizes (preprocessor.MAX_TOKENS),
+            # whose length also sets BART's output budget.
+            "text": truncate_to_length(row["text"]),
             "credibility": {"score": row["credibility_score"]},
             "summary": row["summary"],
             "summarized_at": row["summarized_at"],

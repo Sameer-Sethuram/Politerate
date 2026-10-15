@@ -125,6 +125,12 @@ def _article_lean(credibility_label, bias_label) -> Optional[str]:
     return next((v for v in (credibility_label, bias_label) if v and v != "unknown"), None)
 
 
+def _stored_text(article: dict) -> str:
+    """The text saved for an article: the whole article (preprocessor
+    `full_text`), not the cut `text` clustering and summarizing use."""
+    return article.get("full_text") or article.get("text", "")
+
+
 def save_articles(articles: list[dict]) -> int:
     if not articles:
         return 0
@@ -150,7 +156,7 @@ def save_articles(articles: list[dict]) -> int:
             article.get("url", ""),
             article.get("title", ""),
             article.get("source", "unknown"),
-            article.get("text", ""),
+            _stored_text(article),
             credibility.get("score", 1.0),
             credibility.get("bias_label", "unknown"),
             article.get("cluster_id", ""),
@@ -184,9 +190,12 @@ def _cluster_is_good(cluster: dict) -> bool:
 def save_unclustered_articles(articles: list[dict]) -> int:
     """Persist articles that didn't make it into a named cluster.
 
-    On conflict only scraped_at, source and region are refreshed, so a
-    previously-clustered article is never demoted (its cluster_id stays
-    intact) but still counts as seen today on the All Articles page.
+    On conflict scraped_at, source, region and category are refreshed, a
+    longer text replaces the stored one (rows saved before the full article
+    was kept hold only its first ~4,000 characters), and a new analysis
+    replaces the old one. cluster_id is never touched, so a
+    previously-clustered article is never demoted but still counts as seen
+    today on the All Articles page.
     Each article may carry a 'cluster_id' key set by the caller (e.g.
     'singleton_<hash>' for singletons, or absent for credibility failures).
     """
@@ -213,12 +222,29 @@ def save_unclustered_articles(articles: list[dict]) -> int:
                     scraped_at = excluded.scraped_at,
                     source = excluded.source,
                     region = COALESCE(excluded.region, articles.region),
-                    category = COALESCE(excluded.category, articles.category)
+                    category = COALESCE(excluded.category, articles.category),
+                    text = CASE WHEN length(excluded.text) > length(COALESCE(articles.text, ''))
+                                THEN excluded.text ELSE articles.text END,
+                    credibility_score = CASE WHEN excluded.analysis_json IS NOT NULL
+                                             THEN excluded.credibility_score ELSE articles.credibility_score END,
+                    credibility_label = CASE WHEN excluded.analysis_json IS NOT NULL
+                                             THEN excluded.credibility_label ELSE articles.credibility_label END,
+                    analysis_json = COALESCE(excluded.analysis_json, articles.analysis_json),
+                    article_json = COALESCE(excluded.article_json, articles.article_json),
+                    bias_label = CASE WHEN excluded.analysis_json IS NOT NULL
+                                      THEN excluded.bias_label ELSE articles.bias_label END,
+                    dominant_emotion = CASE WHEN excluded.analysis_json IS NOT NULL
+                                            THEN excluded.dominant_emotion ELSE articles.dominant_emotion END,
+                    subjectivity_ratio = CASE WHEN excluded.analysis_json IS NOT NULL
+                                              THEN excluded.subjectivity_ratio ELSE articles.subjectivity_ratio END,
+                    analysis_status = CASE WHEN excluded.analysis_json IS NOT NULL
+                                           THEN 'done' ELSE articles.analysis_status END,
+                    analyzed_at = COALESCE(excluded.analyzed_at, articles.analyzed_at)
             """, (
                 article.get("url", ""),
                 article.get("title", ""),
                 article.get("source", "unknown"),
-                article.get("text", ""),
+                _stored_text(article),
                 article.get("credibility", {}).get("score"),
                 article.get("credibility", {}).get("bias_label", "unknown"),
                 article.get("cluster_id"),
@@ -321,7 +347,7 @@ def save_clusters(clusters: list[dict]) -> int:
                 article.get("url", ""),
                 article.get("title", ""),
                 article.get("source", "unknown"),
-                article.get("text", ""),
+                _stored_text(article),
                 article.get("credibility", {}).get("score", 1.0),
                 article.get("credibility", {}).get("bias_label", "unknown"),
                 str(cluster.get("cluster_id", "")),
@@ -622,7 +648,7 @@ def save_article_summary(article: dict) -> None:
         article.get("url", ""),
         article.get("title", ""),
         article.get("source", "unknown"),
-        article.get("text", ""),
+        _stored_text(article),
         credibility.get("score"),
         credibility.get("bias_label", "unknown"),
         site_now().isoformat(),
