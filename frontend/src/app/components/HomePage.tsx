@@ -39,7 +39,7 @@ export function HomePage() {
       <AiBanner />
       <PageContainer>
         {/* Header */}
-        <header className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4 pb-6 mb-8 border-b border-border">
+        <header className="flex flex-wrap items-end justify-between gap-x-8 gap-y-3 pb-5 mb-5 border-b border-border">
           <div>
             <p
               className="text-sm tracking-[0.2em] uppercase text-muted-foreground"
@@ -123,7 +123,7 @@ export function HomePage() {
         {!loading && !error && daily && !isEmpty && (
           <>
             {/* Tag key */}
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mb-8 text-sm text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mb-5 text-sm text-muted-foreground">
               {TAG_ORDER.map(t => (
                 <span key={t} className="inline-flex items-center gap-2">
                   <TagSwatch tag={t} />

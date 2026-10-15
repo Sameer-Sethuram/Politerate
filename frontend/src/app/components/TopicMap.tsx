@@ -13,7 +13,12 @@ const MAX_RADIUS = 58;
 // A tag needs this share of a topic to show in its circle's gradient.
 const GRADIENT_MIN_SHARE = 0.08;
 // Titles inside circles, in screen pixels.
-const LABEL_FONT = "600 12px Alegreya, Georgia, serif";
+// Sizes are where a title starts, once its circle first fits it; they grow
+// as you zoom in further (see layoutLabel).
+const labelFont = (px: number) => `600 ${px}px Alegreya, Georgia, serif`;
+const noteFont = (px: number) => `400 ${px}px Alegreya, Georgia, serif`;
+const LABEL_FONT_SIZE = 12;
+const LABEL_FONT = labelFont(LABEL_FONT_SIZE);
 const LABEL_LINE_HEIGHT = 14;
 // Space between a line's ends and the circle's edge, and above/below the text.
 const LABEL_PADDING_X = 8;
@@ -22,9 +27,15 @@ const LABEL_PADDING_Y = 4;
 // they run across the circle rather than down it.
 const LABEL_MIN_ASPECT = 2;
 // The outlets note under a title.
-const NOTE_FONT = "400 11px Alegreya, Georgia, serif";
+const NOTE_FONT_SIZE = 11;
+const NOTE_FONT = noteFont(NOTE_FONT_SIZE);
 const NOTE_LINE_HEIGHT = 13;
 const NOTE_GAP = 3;
+// Past the zoom where a title first fits, its text grows with the square
+// root of how much bigger the circle is (4x the room, 2x the text), so
+// zooming in both enlarges the text and lets its lines run longer. Up to
+// this many times the starting size.
+const MAX_LABEL_SCALE = 2.2;
 // Zoom limits, relative to the zoom that fits the whole map.
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 14;
@@ -139,8 +150,12 @@ function outletNote(outlets: string[], room: number): string | null {
 }
 
 /** A title (and, when there's room under it, its outlets note) laid out in
- *  a circle of screen radius `r`: each line's y relative to the center. */
-function layoutLabel(fit: TitleFit, outlets: string[], r: number) {
+ *  a circle of screen radius `r`: the text scale, and each line's y (screen
+ *  px) relative to the center. Laid out at the starting text size in a
+ *  circle shrunk by the scale, then scaled up. */
+function layoutLabel(fit: TitleFit, outlets: string[], screenRadius: number) {
+  const scale = Math.min(Math.sqrt(screenRadius / fit.minRadius), MAX_LABEL_SCALE);
+  const r = screenRadius / scale;
   const title = fit.options.find(o => o.radius <= r)!;
   const titleHeight = title.lines.length * LABEL_LINE_HEIGHT;
   // With the note, the title moves up so title and note center together.
@@ -153,8 +168,9 @@ function layoutLabel(fit: TitleFit, outlets: string[], r: number) {
   const note = titleFits ? outletNote(outlets, lineRoom(r, noteTop, NOTE_LINE_HEIGHT)) : null;
   const top = note ? titleTop : -titleHeight / 2;
   return {
-    lines: title.lines.map((line, i) => ({ text: line, y: top + (i + 0.5) * LABEL_LINE_HEIGHT })),
-    note: note && { text: note, y: noteTop + NOTE_LINE_HEIGHT / 2 },
+    scale,
+    lines: title.lines.map((line, i) => ({ text: line, y: (top + (i + 0.5) * LABEL_LINE_HEIGHT) * scale })),
+    note: note && { text: note, y: (noteTop + NOTE_LINE_HEIGHT / 2) * scale },
   };
 }
 
@@ -583,10 +599,15 @@ export function TopicMap({
               if (c.x + r < 0 || c.y + r < 0 || c.x - r > size.w || c.y - r > size.h) return null;
               const tag = TOPIC_TAGS[item.dominant];
               const label = layoutLabel(fitInfo, [...new Set(item.topic.sources ?? [])], r);
-              const halo = { stroke: tag.color, strokeWidth: 3, paintOrder: "stroke" as const, strokeLinejoin: "round" as const };
+              const halo = { stroke: tag.color, strokeWidth: 2 + label.scale, paintOrder: "stroke" as const, strokeLinejoin: "round" as const };
               return (
                 <g key={item.index}>
-                  <text x={c.x} textAnchor="middle" dominantBaseline="central" style={{ font: LABEL_FONT, fill: tag.ink, ...halo }}>
+                  <text
+                    x={c.x}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    style={{ font: labelFont(LABEL_FONT_SIZE * label.scale), fill: tag.ink, ...halo }}
+                  >
                     {label.lines.map((line, i) => (
                       <tspan key={i} x={c.x} y={c.y + line.y}>{line.text}</tspan>
                     ))}
@@ -597,7 +618,7 @@ export function TopicMap({
                       y={c.y + label.note.y}
                       textAnchor="middle"
                       dominantBaseline="central"
-                      style={{ font: NOTE_FONT, fill: tag.ink, fillOpacity: 0.85, ...halo }}
+                      style={{ font: noteFont(NOTE_FONT_SIZE * label.scale), fill: tag.ink, fillOpacity: 0.85, ...halo }}
                     >
                       {label.note.text}
                     </text>
