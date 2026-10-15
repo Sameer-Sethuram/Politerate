@@ -35,7 +35,8 @@ export function KeyTermChips({ terms }: { terms: DefinedTerm[] }) {
   );
 }
 
-const MARK_CLASSES = "[&_mark]:bg-yellow-100 [&_mark]:rounded-sm [&_mark]:px-0.5";
+// <mark> is styled globally (globals.css), for both themes.
+const MARK_CLASSES = "";
 
 /** Glossary-highlighted HTML from the backend when present, else plain text. */
 function RichText({ html, text, className }: { html?: string; text: string; className: string }) {

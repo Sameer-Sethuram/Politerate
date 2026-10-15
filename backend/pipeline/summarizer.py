@@ -25,6 +25,7 @@ from backend.pipeline.preprocessor import preprocess_batch
 from backend.pipeline.clustering import cluster_articles, ArticleClusterer, DEFAULT_SIMILARITY_THRESHOLD
 from backend.pipeline.credibility import filter_by_credibility
 from backend.pipeline.highlighter import TermHighlighter
+from backend.pipeline.topic_map import build_topic_maps
 from backend.config import site_now
 logging.basicConfig(
     level=logging.INFO,
@@ -1069,6 +1070,9 @@ class PoliteratePipeline:
                 "outlet_count": cluster_outlets(c),
                 "category": c.get("category") or POLITICS,
                 "relevance": brief_relevance(c),
+                # For tagging policy topics with their genre too; missing on
+                # topics saved before the map existed.
+                "genre_weights": (c.get("map") or {}).get("genre_weights"),
             })
 
         unified_summary = self.create_daily_summary(filtered_clusters) if include_unified else ""
@@ -1129,6 +1133,27 @@ class PoliteratePipeline:
             })
 
         return results
+
+    def attach_topic_maps(self, results: list[dict], prior_by_cluster: dict, reference: list[dict]) -> None:
+        """Each topic's place on the Topics page's map (topic_map), from
+        this run's clustering embeddings. `reference` is every article
+        clustered this run. Topics keep no map data if embedding is
+        unavailable; the map then places them by category alone."""
+        model = getattr(self.clusterer, "model", None)
+        if not results or model is None:
+            return
+        try:
+            maps = build_topic_maps(
+                [(r["cluster_id"], r["articles"] + prior_by_cluster.get(r["cluster_id"], [])) for r in results],
+                reference,
+                self.clusterer.cached_embeddings,
+                is_policy_article,
+            )
+        except Exception as e:
+            logger.warning(f"Topic map data unavailable this run: {e}")
+            return
+        for r in results:
+            r["map"] = maps.get(str(r["cluster_id"]))
 
     def build_cluster_summaries(self, articles: list[dict]) -> dict:
         """summarize_topic plus glossary highlighting and the key terms."""
@@ -1285,6 +1310,7 @@ class PoliteratePipeline:
         )
 
         results = self.process_clusters(clusters, prior_by_cluster)
+        self.attach_topic_maps(results, prior_by_cluster, passed + genre + prior)
 
         # Persist every article that didn't make it into a named cluster so
         # the articles table holds the full picture, not just clustered ones.

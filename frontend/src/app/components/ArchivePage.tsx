@@ -3,9 +3,10 @@ import { useSearchParams } from "react-router";
 import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from "lucide-react";
 import { Calendar } from "./ui/calendar";
 import {
-  Spinner, StateBox, SourceBadge, AiBanner, SectionLabel, getTopicIcon, Region, RegionTag,
+  Spinner, StateBox, SourceBadge, AiBanner, SectionLabel, getTopicIcon, Region,
 } from "./shared";
-import { DailyBriefCard, DailySummary } from "./DailyBrief";
+import { DailyBrief, DailySummary } from "./DailyBrief";
+import { GenreWeights, TopicTags, topicTags } from "./topicTags";
 import { DefinedTerm, DetailedSummary, KeyTermChips, TopicSummary } from "./TopicSummary";
 import { ArticleBlock, ArticleEntry, ClusterArticle } from "./ArticleBreakdown";
 
@@ -28,6 +29,8 @@ interface ArchiveCluster {
   source_credibility?: Array<{ score: number | null; label: string }>;
   defined_terms?: DefinedTerm[];
   region?: Region | null;
+  category?: string | null;
+  map?: { genre_weights?: Partial<GenreWeights> | null } | null;
 }
 
 interface Snapshot {
@@ -139,7 +142,7 @@ function ArchiveTopic({
               {title}
             </h3>
             <p className="mt-1.5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground" style={{ fontFamily: "var(--font-data)" }}>
-              {cluster.region && <RegionTag region={cluster.region} />}
+              <TopicTags tags={topicTags(cluster.category, cluster.region, cluster.map?.genre_weights)} />
               <span>
                 {articleCount} article{articleCount !== 1 ? "s" : ""} · {new Set(sources).size} source
                 {new Set(sources).size !== 1 ? "s" : ""}
@@ -157,7 +160,7 @@ function ArchiveTopic({
           // Collapsed: the overview, so the card doesn't repeat the Daily
           // Brief bullets above it (older snapshots only have the brief).
           <div
-            className="text-lg text-foreground leading-relaxed [&_mark]:bg-yellow-100 [&_mark]:rounded-sm [&_mark]:px-0.5"
+            className="text-lg text-foreground leading-relaxed"
             dangerouslySetInnerHTML={{
               __html:
                 cluster.detailed_summary?.overview_html
@@ -435,7 +438,20 @@ export function ArchivePage() {
                 </h2>
 
                 {brief && brief.sections.length > 0 ? (
-                  <DailyBriefCard data={brief} title="Daily Brief" onHeadlineClick={jumpToTopic} />
+                  <div>
+                    <h3
+                      className="mb-4"
+                      style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "1.55rem", lineHeight: 1.2 }}
+                    >
+                      Daily Brief
+                    </h3>
+                    <DailyBrief
+                      data={brief}
+                      topicHref={id => `/archive?date=${snapshot.date}&topic=${encodeURIComponent(id)}`}
+                      onSelect={jumpToTopic}
+                      showSources={false}
+                    />
+                  </div>
                 ) : (
                   <div className="bg-card border border-border rounded p-6 text-base text-muted-foreground">
                     No topic had enough coverage for a Daily Brief this day.

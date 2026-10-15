@@ -283,8 +283,8 @@ def save_clusters(clusters: list[dict]) -> int:
         cursor.execute("""
             INSERT OR REPLACE INTO clusters
             (id, summary, highlighted_summary, detailed_summary, sources, urls, titles, terms,
-             article_count, updated_at, region, category, outlet_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             article_count, updated_at, region, category, outlet_count, map_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             str(cluster.get("cluster_id", "")),
             cluster.get("summary", ""),
@@ -299,6 +299,7 @@ def save_clusters(clusters: list[dict]) -> int:
             cluster.get("region"),
             cluster.get("category"),
             cluster.get("outlet_count"),
+            json.dumps(cluster["map"]) if cluster.get("map") else None,
         ))
 
         for article in cluster.get("articles", []):
@@ -409,7 +410,7 @@ def get_cached_summaries() -> dict:
 
     cursor.execute("""
         SELECT id, summary, highlighted_summary, detailed_summary, sources, urls, titles, terms,
-               article_count, updated_at, region, category, outlet_count
+               article_count, updated_at, region, category, outlet_count, map_json
         FROM clusters
         WHERE date(updated_at) = ?
         ORDER BY article_count DESC, updated_at DESC
@@ -449,6 +450,7 @@ def get_cached_summaries() -> dict:
             "region": row["region"],
             "category": row["category"],
             "outlet_count": row["outlet_count"],
+            "map": _parse_json(row["map_json"]),
         }
         # Defensive repair: if pre-fix data is still in the live table, fix
         # the source/url pairing on the way out instead of trusting the JSON
@@ -535,7 +537,7 @@ def get_cluster(cluster_id: str) -> Optional[dict]:
 
     cursor.execute("""
         SELECT id, summary, highlighted_summary, detailed_summary, sources, urls, titles, terms,
-               article_count, updated_at, region, category, outlet_count
+               article_count, updated_at, region, category, outlet_count, map_json
         FROM clusters WHERE id = ? AND date(updated_at) = ?
     """, (cluster_id, today_str()))
     row = cursor.fetchone()
@@ -566,6 +568,7 @@ def get_cluster(cluster_id: str) -> Optional[dict]:
         "region": row["region"],
         "category": row["category"],
         "outlet_count": row["outlet_count"],
+        "map": _parse_json(row["map_json"]),
     }
     cluster = _repair_cluster_source_pairings(cluster)
 

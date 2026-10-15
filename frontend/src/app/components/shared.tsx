@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Earth, Landmark } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -100,25 +101,32 @@ export function RegionTag({ region, className = "" }: { region: Region; classNam
 
 // ─── Badges ───────────────────────────────────────────────────────────────────
 
-const LEAN_MAP: Record<string, { label: string; bg: string; color: string }> = {
-  left:         { label: "Left",   bg: "#dbeafe", color: "#1d4ed8" },
-  "lean-left":  { label: "Left",   bg: "#dbeafe", color: "#1d4ed8" },
-  label_0:      { label: "Left",   bg: "#dbeafe", color: "#1d4ed8" },
-  center:       { label: "Center", bg: "#dcfce7", color: "#15803d" },
-  "lean-center":{ label: "Center", bg: "#dcfce7", color: "#15803d" },
-  label_1:      { label: "Center", bg: "#dcfce7", color: "#15803d" },
-  right:        { label: "Right",  bg: "#fee2e2", color: "#b91c1c" },
-  "lean-right": { label: "Right",  bg: "#fee2e2", color: "#b91c1c" },
-  label_2:      { label: "Right",  bg: "#fee2e2", color: "#b91c1c" },
+// Hues for tinted chips (.chip-tint mixes them with the surface per theme).
+const LEAN_HUES = { left: "#2563eb", center: "#16a34a", right: "#dc2626" };
+
+const LEAN_MAP: Record<string, { label: string; hue: string }> = {
+  left:         { label: "Left",   hue: LEAN_HUES.left },
+  "lean-left":  { label: "Left",   hue: LEAN_HUES.left },
+  label_0:      { label: "Left",   hue: LEAN_HUES.left },
+  center:       { label: "Center", hue: LEAN_HUES.center },
+  "lean-center":{ label: "Center", hue: LEAN_HUES.center },
+  label_1:      { label: "Center", hue: LEAN_HUES.center },
+  right:        { label: "Right",  hue: LEAN_HUES.right },
+  "lean-right": { label: "Right",  hue: LEAN_HUES.right },
+  label_2:      { label: "Right",  hue: LEAN_HUES.right },
 };
+
+const hueStyle = (hue: string) => ({ "--hue": hue }) as React.CSSProperties;
+/** A hue readable as text on either theme's surfaces. */
+const textHue = (hue: string) => `color-mix(in srgb, ${hue} var(--tint-ink-mix), var(--foreground))`;
 
 export function LeanBadge({ lean }: { lean: string }) {
   const c = LEAN_MAP[lean?.toLowerCase()];
   if (!c) return null;
   return (
     <span
-      className="inline-flex items-center px-2 py-0.5 rounded-sm text-sm font-semibold"
-      style={{ background: c.bg, color: c.color }}
+      className="chip-tint inline-flex items-center px-2 py-0.5 rounded-sm text-sm font-semibold"
+      style={hueStyle(c.hue)}
     >
       {c.label}
     </span>
@@ -126,13 +134,11 @@ export function LeanBadge({ lean }: { lean: string }) {
 }
 
 export function CredBadge({ score }: { score: number }) {
-  const high = score >= 0.8, med = score >= 0.5;
-  const bg    = high ? "#dcfce7" : med ? "#fef9c3" : "#fee2e2";
-  const color = high ? "#15803d" : med ? "#854d0e" : "#991b1b";
+  const hue = score >= 0.8 ? "#16a34a" : score >= 0.5 ? "#ca8a04" : "#dc2626";
   return (
     <span
-      className="inline-flex items-center px-2 py-0.5 rounded-sm text-sm tabular-nums"
-      style={{ background: bg, color, fontFamily: "var(--font-data)" }}
+      className="chip-tint inline-flex items-center px-2 py-0.5 rounded-sm text-sm tabular-nums"
+      style={{ ...hueStyle(hue), fontFamily: "var(--font-data)" }}
       title="Credibility score (0–1): higher means less loaded, subjective language"
     >
       {score.toFixed(2)}
@@ -140,26 +146,25 @@ export function CredBadge({ score }: { score: number }) {
   );
 }
 
-const EMOTION_STYLES: Record<string, { bg: string; color: string }> = {
-  neutral:     { bg: "#f3f4f6", color: "#4b5563" },
-  anger:       { bg: "#fee2e2", color: "#991b1b" },
-  fear:        { bg: "#fef3c7", color: "#92400e" },
-  sadness:     { bg: "#dbeafe", color: "#1e40af" },
-  joy:         { bg: "#d1fae5", color: "#065f46" },
-  approval:    { bg: "#dcfce7", color: "#065f46" },
-  disapproval: { bg: "#fce7f3", color: "#9d174d" },
-  disgust:     { bg: "#f3e8ff", color: "#6b21a8" },
-  annoyance:   { bg: "#ffedd5", color: "#9a3412" },
-  optimism:    { bg: "#e0f2fe", color: "#075985" },
-  confusion:   { bg: "#f1f5f9", color: "#475569" },
+const EMOTION_HUES: Record<string, string> = {
+  neutral:     "#6b7280",
+  anger:       "#dc2626",
+  fear:        "#d97706",
+  sadness:     "#2563eb",
+  joy:         "#059669",
+  approval:    "#16a34a",
+  disapproval: "#db2777",
+  disgust:     "#9333ea",
+  annoyance:   "#ea580c",
+  optimism:    "#0284c7",
+  confusion:   "#64748b",
 };
 
 export function EmotionBadge({ emotion }: { emotion: string }) {
-  const s = EMOTION_STYLES[emotion] ?? EMOTION_STYLES.neutral;
   return (
     <span
-      className="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-semibold capitalize"
-      style={{ background: s.bg, color: s.color }}
+      className="chip-tint inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-semibold capitalize"
+      style={hueStyle(EMOTION_HUES[emotion] ?? EMOTION_HUES.neutral)}
     >
       {emotion}
     </span>
@@ -185,7 +190,7 @@ export function BiasBar({ bias }: { bias: string }) {
       </span>
       <span
         className="text-sm font-medium capitalize"
-        style={{ color: colors[bias] ?? "var(--muted-foreground)" }}
+        style={{ color: colors[bias] ? textHue(colors[bias]) : "var(--muted-foreground)" }}
       >
         {bias ? bias[0].toUpperCase() + bias.slice(1) : "—"}
       </span>
@@ -196,13 +201,13 @@ export function BiasBar({ bias }: { bias: string }) {
 export function SubjectivityBar({ pct }: { pct: number }) {
   const v = Math.max(0, Math.min(100, Math.round(pct)));
   const high = v >= 85, med = v >= 70;
-  const color = high ? "#15803d" : med ? "#d97706" : "#dc2626";
+  const color = high ? "#16a34a" : med ? "#d97706" : "#dc2626";
   return (
     <span className="inline-flex items-center gap-2">
-      <span className="w-24 h-2 rounded-full bg-secondary overflow-hidden">
+      <span className="w-24 h-2 rounded-full bg-border-strong overflow-hidden">
         <span className="block h-full rounded-full" style={{ width: `${v}%`, background: color }} />
       </span>
-      <span className="text-sm tabular-nums" style={{ color, fontFamily: "var(--font-data)" }}>
+      <span className="text-sm tabular-nums" style={{ color: textHue(color), fontFamily: "var(--font-data)" }}>
         {v}%
       </span>
     </span>
@@ -277,12 +282,13 @@ const TECHNIQUE_CAT: Record<string, string> = {
   Obfuscation_Intentional_Vagueness_Confusion: "loaded",
 };
 
-const ANNOT_BG: Record<string, string> = {
-  persuasion: "#fee2e2",
-  appeal: "#f3e8ff",
-  exaggeration: "#fce7f3",
-  loaded: "#ffedd5",
-  emotion: "#fef3c7",
+/** Hues behind analyzer-flagged text, by category (.annot / .chip-tint). */
+export const ANNOT_HUES: Record<string, string> = {
+  persuasion: "#ef4444",
+  appeal: "#a855f7",
+  exaggeration: "#ec4899",
+  loaded: "#f97316",
+  emotion: "#eab308",
 };
 
 export function chunkCategory(chunk: Chunk): string | null {
@@ -296,17 +302,17 @@ export function chunkCategory(chunk: Chunk): string | null {
 
 export function AnnotationLegend() {
   const items = [
-    { bg: "#fee2e2", label: "Persuasion" },
-    { bg: "#f3e8ff", label: "Appeal" },
-    { bg: "#fce7f3", label: "Exaggeration" },
-    { bg: "#ffedd5", label: "Loaded" },
-    { bg: "#fef3c7", label: "Emotional" },
+    { hue: ANNOT_HUES.persuasion, label: "Persuasion" },
+    { hue: ANNOT_HUES.appeal, label: "Appeal" },
+    { hue: ANNOT_HUES.exaggeration, label: "Exaggeration" },
+    { hue: ANNOT_HUES.loaded, label: "Loaded" },
+    { hue: ANNOT_HUES.emotion, label: "Emotional" },
   ];
   return (
     <div className="flex flex-wrap gap-3 mb-4">
       {items.map(item => (
         <span key={item.label} className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <span className="inline-block w-3.5 h-3.5 rounded-sm" style={{ background: item.bg }} />
+          <span className="annot inline-block w-3.5 h-3.5 rounded-sm" style={hueStyle(item.hue)} />
           {item.label}
         </span>
       ))}
@@ -329,14 +335,87 @@ export function AnnotatedText({ chunks }: { chunks: Chunk[] }) {
           <span
             key={i}
             title={tip}
-            className="cursor-help rounded-sm px-0.5"
-            style={{ background: ANNOT_BG[cat] ?? ANNOT_BG.loaded }}
+            className="annot cursor-help rounded-sm px-0.5"
+            style={hueStyle(ANNOT_HUES[cat] ?? ANNOT_HUES.loaded)}
           >
             {chunk.text}{" "}
           </span>
         );
       })}
     </p>
+  );
+}
+
+// ─── Glossary term tooltip ────────────────────────────────────────────────────
+
+/**
+ * Definitions for the glossary terms the backend highlights
+ * (`.politerate-term`, definition in `title`). One floating tooltip for the
+ * whole page, so it isn't clipped by containers that hide overflow (Daily
+ * Brief tiles clamp their text). Mounted once, in Layout.
+ */
+export function TermTooltip() {
+  const [tip, setTip] = useState<{ text: string; anchor: DOMRect } | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const termOf = (target: EventTarget | null) =>
+      target instanceof Element ? target.closest<HTMLElement>(".politerate-term") : null;
+
+    function show(e: Event) {
+      const el = termOf(e.target);
+      if (!el) return;
+      // Move the definition off `title` so the browser's own tooltip doesn't
+      // show as well.
+      if (el.hasAttribute("title")) {
+        el.dataset.definition = el.getAttribute("title") ?? "";
+        el.removeAttribute("title");
+      }
+      const text = el.dataset.definition;
+      if (text) setTip({ text, anchor: el.getBoundingClientRect() });
+    }
+    function leave(e: MouseEvent) {
+      const el = termOf(e.target);
+      if (el && !el.contains(e.relatedTarget as Node | null)) setTip(null);
+    }
+    const hide = () => setTip(null);
+
+    document.addEventListener("mouseover", show);
+    document.addEventListener("mouseout", leave);
+    document.addEventListener("focusin", show);
+    document.addEventListener("focusout", hide);
+    window.addEventListener("scroll", hide, true);
+    return () => {
+      document.removeEventListener("mouseover", show);
+      document.removeEventListener("mouseout", leave);
+      document.removeEventListener("focusin", show);
+      document.removeEventListener("focusout", hide);
+      window.removeEventListener("scroll", hide, true);
+    };
+  }, []);
+
+  // Above the term, or below it near the top of the window; kept on screen.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !tip) return;
+    const { width, height } = el.getBoundingClientRect();
+    const { anchor } = tip;
+    const left = Math.min(
+      Math.max(anchor.left + anchor.width / 2 - width / 2, 12),
+      window.innerWidth - width - 12,
+    );
+    const above = anchor.top - height - 8;
+    el.style.left = `${left}px`;
+    el.style.top = `${above >= 8 ? above : anchor.bottom + 8}px`;
+    el.style.visibility = "visible";
+  }, [tip]);
+
+  if (!tip) return null;
+  return createPortal(
+    <div ref={ref} role="tooltip" className="term-tooltip" style={{ left: 0, top: 0, visibility: "hidden" }}>
+      {tip.text}
+    </div>,
+    document.body,
   );
 }
 

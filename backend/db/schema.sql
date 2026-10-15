@@ -82,7 +82,11 @@ CREATE TABLE IF NOT EXISTS clusters (
     category TEXT,
     -- Outlets that reported the story, including earlier coverage in the
     -- lookback window (the Daily Brief ranks topics by it)
-    outlet_count INTEGER
+    outlet_count INTEGER,
+    -- JSON {genre_weights: {politics, health, tech, business},
+    --       neighbors: [[cluster id, similarity]]}: where the Topics page's
+    -- map places it (pipeline/topic_map.py)
+    map_json TEXT
 );
 
 -- ---------------------------------------------------------------------------

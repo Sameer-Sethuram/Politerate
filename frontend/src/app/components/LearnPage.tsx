@@ -254,7 +254,7 @@ function QuizCard({ streak, onStreak }: { streak: number; onStreak: (n: number) 
               <li key={i} className="text-base flex gap-2 items-start pb-2 border-b border-border last:border-0">
                 <span
                   className="font-bold shrink-0 mt-0.5"
-                  style={{ color: a.correct ? "#15803d" : "var(--destructive)" }}
+                  style={{ color: a.correct ? "var(--success)" : "var(--destructive)" }}
                 >
                   {a.correct ? "✓" : "✗"}
                 </span>
@@ -343,9 +343,9 @@ function QuizCard({ streak, onStreak }: { streak: number; onStreak: (n: number) 
           if (!answered) {
             cls += "border-border bg-card hover:border-[var(--accent)] hover:bg-secondary";
           } else if (i === correctIdx) {
-            cls += "border-green-400 bg-green-50 text-green-800 font-medium";
+            cls += "border-green-400 bg-green-50 text-green-800 font-medium dark:border-green-600 dark:bg-green-950/50 dark:text-green-300";
           } else if (lastAnswer && i === lastAnswer.chosenIdx) {
-            cls += "border-destructive bg-red-50 text-red-800";
+            cls += "border-destructive bg-red-50 text-red-800 dark:bg-red-950/50 dark:text-red-300";
           } else {
             cls += "border-border bg-card opacity-50";
           }
@@ -364,7 +364,7 @@ function QuizCard({ streak, onStreak }: { streak: number; onStreak: (n: number) 
 
       {answered && lastAnswer && (
         <div className="p-4 bg-secondary rounded text-base">
-          <strong style={{ color: lastAnswer.correct ? "#15803d" : "var(--destructive)" }}>
+          <strong style={{ color: lastAnswer.correct ? "var(--success)" : "var(--destructive)" }}>
             {lastAnswer.correct ? "Correct!" : "Not quite."}
           </strong>{" "}
           {q.explanation ?? ""}

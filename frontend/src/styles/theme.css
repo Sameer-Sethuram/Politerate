@@ -8,12 +8,14 @@
   --font-sans: 'Alegreya', Georgia, serif;
   --font-data: 'Alegreya', Georgia, serif;
 
+  /* Light mode: neutral sepia. Dark mode (.dark, the default) is below. */
+
   /* Brand palette (logo-anchored, from the original static/css/main.css) */
   --brand-dark: #1e1e3f;           /* "Po" in the wordmark */
   --brand-accent: #6f5ee6;         /* "literate" in the wordmark + network icon */
   --brand-accent-soft: #ece9fd;    /* tint for brand-colored UI */
 
-  --background: #f1ebe1;           /* neutral sepia */
+  --background: #f1ebe1;
   --foreground: var(--brand-dark);
   --card: #faf7f2;
   --card-foreground: var(--brand-dark);
@@ -29,13 +31,16 @@
   --accent-foreground: #ffffff;
   --destructive: #b91c1c;
   --destructive-foreground: #ffffff;
+  --success: #15803d;
   --border: rgba(62, 48, 32, 0.13);
+  --border-strong: rgba(62, 48, 32, 0.24);
   --input: transparent;
   --input-background: #ebe4d8;
   --switch-background: #cdc4b5;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
   --ring: rgba(111, 94, 230, 0.35);
+  --shadow-raised: 0 10px 30px -12px rgba(62, 48, 32, 0.28);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -50,49 +55,98 @@
   --sidebar-accent-foreground: var(--brand-dark);
   --sidebar-border: rgba(62, 48, 32, 0.13);
   --sidebar-ring: rgba(111, 94, 230, 0.35);
+
+  /* Topic tags (Daily Brief, Topics map and list, Articles). Each has a
+     fill and an ink (its text color on that fill). Tech's light blue is
+     cyan-leaning so it doesn't read as the blue Left lean badge. */
+  --tag-us: #6f5ee6;        --tag-us-ink: #ffffff;
+  --tag-world: #3b2585;     --tag-world-ink: #ffffff;
+  --tag-tech: #46b9e8;      --tag-tech-ink: #062638;
+  --tag-business: #2fae74;  --tag-business-ink: #04281a;
+  --tag-health: #f0bf2c;    --tag-health-ink: #3a2a00;
+  --tag-edge: transparent;
+
+  /* Hues for tinted chips (lean, credibility, emotion) and analyzer
+     highlights, mixed with the surface so they suit both themes. */
+  --tint-mix: 16%;
+  --tint-ink-mix: 72%;
+  --annot-mix: 24%;
+  --mark-bg: #fdf3c4;
+
+  /* Topics map */
+  --map-bg: #f6f1e9;
+  --map-ring: rgba(62, 48, 32, 0.10);
+  --map-axis: rgba(62, 48, 32, 0.28);
+  --map-circle-edge: rgba(30, 30, 63, 0.28);
+  --map-label-halo: rgba(250, 247, 242, 0.85);
 }
 
 .dark {
+  /* Muted black, slightly gray. */
   --brand-dark: #ece9fd;
   --brand-accent: #9d90f2;
-  --brand-accent-soft: #2a2650;
+  --brand-accent-soft: #2b2752;
 
-  --background: #1a1714;
-  --foreground: #efe9df;
-  --card: #24201c;
-  --card-foreground: #efe9df;
-  --popover: #24201c;
-  --popover-foreground: #efe9df;
+  --background: #1b1b1e;
+  --foreground: #e8e6eb;
+  --card: #232327;
+  --card-foreground: #e8e6eb;
+  --popover: #2a2a2f;
+  --popover-foreground: #e8e6eb;
   --primary: var(--brand-accent);
-  --primary-foreground: #14121f;
-  --secondary: #2f2a24;
-  --secondary-foreground: #efe9df;
-  --muted: #2f2a24;
-  --muted-foreground: #a39a8e;
+  --primary-foreground: #15121f;
+  --secondary: #2d2d32;
+  --secondary-foreground: #e8e6eb;
+  --muted: #2a2a2f;
+  --muted-foreground: #a3a1ab;
   --accent: var(--brand-accent);
-  --accent-foreground: #14121f;
-  --destructive: #ef4444;
-  --destructive-foreground: #ffffff;
-  --border: rgba(239, 233, 223, 0.09);
-  --input: rgba(239, 233, 223, 0.09);
-  --input-background: #2f2a24;
-  --switch-background: #3d372f;
+  --accent-foreground: #15121f;
+  --destructive: #f87171;
+  --destructive-foreground: #15121f;
+  --success: #4ade80;
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --input: rgba(255, 255, 255, 0.09);
+  --input-background: #2d2d32;
+  --switch-background: #3a3a40;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: rgba(157, 144, 242, 0.4);
+  --ring: rgba(157, 144, 242, 0.45);
+  --shadow-raised: 0 14px 34px -12px rgba(0, 0, 0, 0.7);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: #24201c;
-  --sidebar-foreground: #efe9df;
+  --sidebar: #232327;
+  --sidebar-foreground: #e8e6eb;
   --sidebar-primary: var(--brand-accent);
-  --sidebar-primary-foreground: #14121f;
-  --sidebar-accent: #2f2a24;
-  --sidebar-accent-foreground: #efe9df;
-  --sidebar-border: rgba(239, 233, 223, 0.09);
-  --sidebar-ring: rgba(157, 144, 242, 0.4);
+  --sidebar-primary-foreground: #15121f;
+  --sidebar-accent: #2d2d32;
+  --sidebar-accent-foreground: #e8e6eb;
+  --sidebar-border: rgba(255, 255, 255, 0.09);
+  --sidebar-ring: rgba(157, 144, 242, 0.45);
+
+  /* U.S. is the lighter purple (dark ink) and World the deeper one (white
+     ink), so the two read apart on a dark surface. World's fill is close
+     to the background, hence the edge. */
+  --tag-us: #8f82f4;        --tag-us-ink: #14112a;
+  --tag-world: #4b2e9a;     --tag-world-ink: #ffffff;
+  --tag-tech: #5ac6f2;      --tag-tech-ink: #062638;
+  --tag-business: #3dbd84;  --tag-business-ink: #04281a;
+  --tag-health: #f2c63a;    --tag-health-ink: #3a2a00;
+  --tag-edge: rgba(255, 255, 255, 0.16);
+
+  --tint-mix: 22%;
+  --tint-ink-mix: 62%;
+  --annot-mix: 34%;
+  --mark-bg: rgba(242, 198, 58, 0.25);
+
+  --map-bg: #19191c;
+  --map-ring: rgba(255, 255, 255, 0.06);
+  --map-axis: rgba(255, 255, 255, 0.22);
+  --map-circle-edge: rgba(255, 255, 255, 0.30);
+  --map-label-halo: rgba(20, 20, 24, 0.75);
 }
 
 @theme inline {
@@ -115,7 +169,9 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-input: var(--input);
   --color-input-background: var(--input-background);
   --color-switch-background: var(--switch-background);
@@ -142,6 +198,13 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+  }
+
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
   }
 
   body {

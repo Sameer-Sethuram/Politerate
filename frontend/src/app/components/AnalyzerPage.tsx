@@ -1,9 +1,9 @@
-import { useState, useRef } from "react";
+import React, { useState, useRef } from "react";
 import { AlertCircle } from "lucide-react";
 import {
   Spinner, StateBox, AnnotationLegend, AnnotatedText, BiasBar,
   EmotionBadge, SubjectivityBar, SectionLabel, PageContainer,
-  Chunk, formatTechnique, chunkCategory,
+  Chunk, formatTechnique, chunkCategory, ANNOT_HUES,
 } from "./shared";
 
 interface ArticleAnalysis {
@@ -22,14 +22,6 @@ interface AnalysisResult {
 
 const SAMPLE_TEXT =
   "The devastating new policy is clearly an outrageous attack on freedom. Everyone knows this is a radical scheme that experts say will have catastrophic consequences. Studies show that this terrible decision was made without proper consideration. The fact is, they don't want you to know the truth about this shocking development. Bipartisan support has been lacking, and according to recent research, moderate lawmakers remain skeptical of the proposed changes.";
-
-const CAT_COLORS: Record<string, string> = {
-  persuasion: "#fee2e2",
-  appeal: "#f3e8ff",
-  exaggeration: "#fce7f3",
-  loaded: "#ffedd5",
-  emotion: "#fef3c7",
-};
 
 function SummaryGrid({ article, chunks, modelVersion }: { article: ArticleAnalysis; chunks: Chunk[]; modelVersion?: string }) {
   const pct = Math.round(100 * (article.subjectivity_ratio ?? 0));
@@ -58,8 +50,8 @@ function SummaryGrid({ article, chunks, modelVersion }: { article: ArticleAnalys
             {techEntries.slice(0, 6).map(([label, count]) => (
               <span
                 key={label}
-                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-sm font-medium"
-                style={{ background: CAT_COLORS[chunkCategory({ techniques: [{ label, confidence: 1 }], emotion: "", bias: "", subjective: false, text: "" }) ?? "loaded"] ?? "#ffedd5", color: "#0f0e0c" }}
+                className="chip-tint inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-sm font-medium"
+                style={{ "--hue": ANNOT_HUES[chunkCategory({ techniques: [{ label, confidence: 1 }], emotion: "", bias: "", subjective: false, text: "" }) ?? "loaded"] ?? ANNOT_HUES.loaded } as React.CSSProperties}
               >
                 {formatTechnique(label)}
                 <span className="opacity-60">×{count}</span>

@@ -19,7 +19,16 @@ ALL_ARTICLES_PAST_DAYS = 7
 
 @articles_bp.route("/api/summaries")
 def get_summaries():
-    return jsonify(get_cached_summaries())
+    from backend.pipeline.summarizer import brief_relevance, select_brief_clusters
+
+    data = get_cached_summaries()
+    clusters = data.get("clusters", [])
+    brief_ids = {str(c.get("cluster_id")) for c in select_brief_clusters(clusters)}
+    for c in clusters:
+        # Sizes the Topics page's circles the way the Daily Brief ranks topics.
+        c["relevance"] = brief_relevance(c)
+        c["in_brief"] = str(c.get("cluster_id")) in brief_ids
+    return jsonify(data)
 
 
 @articles_bp.route("/api/daily-summary")
@@ -53,7 +62,7 @@ def api_article_analysis():
     cursor.execute("""
         SELECT url, title, source, text, credibility_score, credibility_label,
                analysis_json, article_json, bias_label, dominant_emotion,
-               subjectivity_ratio, analysis_status, analyzed_at, region
+               subjectivity_ratio, analysis_status, analyzed_at, region, category
         FROM articles WHERE url = ?
     """, (url,))
     row = cursor.fetchone()
@@ -82,6 +91,7 @@ def api_article_analysis():
         "analysis_status": row["analysis_status"],
         "analyzed_at": row["analyzed_at"],
         "region": row["region"],
+        "category": row["category"],
         "chunks": _parse(row["analysis_json"]),
         "article_summary": _parse(row["article_json"]),
         "text": row["text"],
@@ -128,7 +138,7 @@ def get_all_articles():
     cursor = conn.cursor()
     cursor.execute("""
         SELECT url, title, source, credibility_score, credibility_label,
-               bias_label, analysis_status, scraped_at, region
+               bias_label, analysis_status, scraped_at, region, category
         FROM articles
         WHERE url IS NOT NULL AND url != ''
           AND scraped_at >= ?
@@ -160,6 +170,9 @@ def get_all_articles():
             "in_brief": (day, row["url"]) in in_brief,
             # "us" / "world"; null for articles stored before regions existed
             "region": row["region"],
+            # Its feed's 'politics', 'health', 'tech' or 'business'; null
+            # for articles stored before categories existed (all political)
+            "category": row["category"],
             "scraped_at": row["scraped_at"],
         })
 

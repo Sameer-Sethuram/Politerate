@@ -24,39 +24,126 @@
 }
 
 /* Glossary-term highlights injected by the backend highlighter
-   (backend/pipeline/highlighter.py) into `highlighted_summary` HTML. */
+   (backend/pipeline/highlighter.py) into `highlighted_summary` HTML. Their
+   definitions show in TermTooltip (shared.tsx), which floats above the page
+   so clipped containers like Daily Brief tiles don't cut it off. */
 .politerate-term {
   border-bottom: 2px dotted var(--brand-accent);
   cursor: help;
-  position: relative;
   padding: 0 1px;
   transition: background 160ms ease;
 }
 .politerate-term:hover {
   background: var(--brand-accent-soft);
 }
-.politerate-term::after {
-  content: attr(title);
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%) translateY(-4px);
-  background: var(--brand-dark);
-  color: var(--background);
+.term-tooltip {
+  position: fixed;
+  z-index: 100;
+  max-width: min(360px, calc(100vw - 24px));
   padding: 0.55rem 0.8rem;
   border-radius: 6px;
+  background: var(--brand-dark);
+  color: var(--background);
   font-size: 0.9rem;
   line-height: 1.45;
-  max-width: 360px;
-  width: max-content;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 160ms ease, visibility 160ms ease;
-  z-index: 50;
-  box-shadow: 0 8px 32px rgba(30, 30, 63, 0.12);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
   pointer-events: none;
 }
-.politerate-term:hover::after {
+
+/* Older summaries mark terms with <mark>. */
+mark {
+  background: var(--mark-bg);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+/* Tinted chips (lean, credibility, emotion): set --hue inline. Mixed with
+   the surface, so the same hue gives a pastel chip on sepia and a deep one
+   on dark. */
+.chip-tint {
+  background: color-mix(in srgb, var(--hue) var(--tint-mix), var(--card));
+  color: color-mix(in srgb, var(--hue) var(--tint-ink-mix), var(--foreground));
+}
+/* Analyzer highlights behind running text: set --hue inline. */
+.annot {
+  background: color-mix(in srgb, var(--hue) var(--annot-mix), transparent);
+}
+
+/* Topic tags: set --tag and --tag-ink inline (see TOPIC_TAGS). */
+.topic-tag {
+  background: var(--tag);
+  color: var(--tag-ink);
+  box-shadow: inset 0 0 0 1px var(--tag-edge);
+}
+
+/* Daily Brief bento. Each tile sets its spans inline: --c and --r on the
+   six-column grid, --c2 on the two-column one. Sized by the container, not
+   the window, since the Archive shows the brief beside its calendar. */
+.bento-wrap {
+  container-type: inline-size;
+}
+.bento {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+@container (min-width: 600px) {
+  .bento {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .bento-tile {
+    grid-column: span var(--c2, 1);
+  }
+}
+@container (min-width: 820px) {
+  .bento {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-auto-rows: minmax(13.5rem, auto);
+  }
+  .bento-tile {
+    grid-column: span var(--c, 2);
+    grid-row: span var(--r, 1);
+  }
+}
+.bento-tile {
+  position: relative;
+  transition:
+    transform 220ms cubic-bezier(0.2, 0.7, 0.3, 1),
+    box-shadow 220ms ease,
+    border-color 220ms ease;
+}
+/* Bigger tiles grow less, so every tile grows by about the same amount. */
+.bento-tile:hover,
+.bento-tile:focus-visible {
+  transform: scale(var(--lift, 1.03));
+  box-shadow: var(--shadow-raised);
+  border-color: var(--border-strong);
+  z-index: 2;
+}
+.bento-tile .tile-cta {
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity 200ms ease, transform 200ms ease;
+}
+.bento-tile:hover .tile-cta,
+.bento-tile:focus-visible .tile-cta {
   opacity: 1;
-  visibility: visible;
+  transform: none;
+}
+@media (hover: none) {
+  .bento-tile .tile-cta {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bento-tile,
+  .bento-tile .tile-cta {
+    transition: none;
+  }
+  .bento-tile:hover,
+  .bento-tile:focus-visible {
+    transform: none;
+  }
 }

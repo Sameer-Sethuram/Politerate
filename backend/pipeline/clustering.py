@@ -78,6 +78,9 @@ class ArticleClusterer:
             self.model = SentenceTransformer(model_name, device=device)
             logger.info("Embedding model loaded")
 
+    def _cache_keys(self, articles: list[dict], texts: list[str]) -> list[tuple]:
+        return [(self.model_name, a.get("url") or "", hash(t)) for a, t in zip(articles, texts)]
+
     def embed_articles(self, articles: list[dict]) -> Optional[list]:
         if not self.model:
             logger.error("Embedding model not available")
@@ -86,7 +89,7 @@ class ArticleClusterer:
         import numpy as np
 
         texts = _article_texts(articles)
-        keys = [(self.model_name, a.get("url") or "", hash(t)) for a, t in zip(articles, texts)]
+        keys = self._cache_keys(articles, texts)
         missing = [i for i, k in enumerate(keys) if k not in _EMBEDDING_CACHE]
         if missing:
             logger.info(f"Embedding {len(missing)} articles ({len(keys) - len(missing)} already embedded)")
@@ -97,6 +100,22 @@ class ArticleClusterer:
         for stale in set(_EMBEDDING_CACHE) - set(keys):
             del _EMBEDDING_CACHE[stale]
         return embeddings
+
+    def cached_embeddings(self, articles: list[dict]):
+        """Embeddings for `articles`, reusing the ones this run's clustering
+        made and embedding any others now. Unlike embed_articles, it leaves
+        the cache alone: called with a subset, embed_articles would drop
+        every other article's embedding before the next run."""
+        import numpy as np
+
+        texts = _article_texts(articles)
+        keys = self._cache_keys(articles, texts)
+        missing = [i for i, k in enumerate(keys) if k not in _EMBEDDING_CACHE]
+        new = {}
+        if missing:
+            encoded = self.model.encode([texts[i] for i in missing], show_progress_bar=False, convert_to_numpy=True)
+            new = dict(zip(missing, encoded))
+        return np.array([new[i] if i in new else _EMBEDDING_CACHE[k] for i, k in enumerate(keys)])
 
     def compute_similarity_matrix(self, embeddings, texts: Optional[list[str]] = None):
         """Embedding similarity, blended with distinctive-word overlap when

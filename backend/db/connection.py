@@ -129,6 +129,7 @@ def _apply_column_migrations(cursor) -> None:
         ("region",                  "TEXT"),
         ("category",                "TEXT"),
         ("outlet_count",            "INTEGER"),
+        ("map_json",                "TEXT"),
     ]
     archive_migrations = [
         ("region",                  "TEXT"),

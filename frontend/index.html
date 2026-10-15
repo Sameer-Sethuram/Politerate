@@ -8,6 +8,19 @@
       <title>Politerate</title>
       <meta name="description" content="Multi-source, unbiased political news — summarized across outlets with key terms explained." />
       <style>html, body { height: 100%; margin: 0; } #root { height: 100%; }</style>
+      <!-- Theme before first paint, so the page never flashes the wrong one.
+           Dark unless the visitor picked light (see app/theme.ts). -->
+      <script>
+        (function () {
+          var theme = "dark";
+          try { if (localStorage.getItem("politerate-theme") === "light") theme = "light"; } catch (e) {}
+          if (theme === "dark") document.documentElement.classList.add("dark");
+          var meta = document.createElement("meta");
+          meta.name = "theme-color";
+          meta.content = theme === "dark" ? "#1b1b1e" : "#f1ebe1";
+          document.head.appendChild(meta);
+        })();
+      </script>
       
     </head>
 

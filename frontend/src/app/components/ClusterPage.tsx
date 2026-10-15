@@ -1,11 +1,18 @@
 import { useState, useEffect } from "react";
-import { Link, useParams } from "react-router";
-import { ArrowLeft, AlertCircle } from "lucide-react";
+import { Link, useLocation, useParams } from "react-router";
+import { ArrowLeft, AlertCircle, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import {
-  Spinner, StateBox, AiBanner, SourceBadge, SectionLabel, PageContainer, Region, RegionTag,
+  Spinner, StateBox, AiBanner, SourceBadge, SectionLabel, PageContainer, Region,
 } from "./shared";
 import { ArticleBlock, ArticleEntry, AnalysisStatus, ClusterArticle } from "./ArticleBreakdown";
 import { DefinedTerm, DetailedSummary, KeyTermChips, TopicSummary } from "./TopicSummary";
+import { GenreWeights, TopicTags, topicTags } from "./topicTags";
+
+// Where the back link goes, by the page that opened the topic.
+const BACK_LINKS = {
+  today: { to: "/", label: "Back to Today" },
+  topics: { to: "/topics", label: "Back to Topics" },
+} as const;
 
 interface ClusterData {
   cluster_id: string;
@@ -14,6 +21,8 @@ interface ClusterData {
   highlighted_summary?: string;
   detailed_summary?: DetailedSummary | null;
   region?: Region | null;
+  category?: string | null;
+  map?: { genre_weights?: Partial<GenreWeights> | null } | null;
   article_count: number;
   articles: ClusterArticle[];
   sources: string[];
@@ -23,6 +32,11 @@ interface ClusterData {
 export function ClusterPage() {
   // react-router already URL-decodes route params.
   const { clusterId = "" } = useParams<{ clusterId: string }>();
+  const location = useLocation();
+  const from = (location.state as { from?: keyof typeof BACK_LINKS } | null)?.from;
+  const back = BACK_LINKS[from ?? "today"] ?? BACK_LINKS.today;
+  // Breakdowns are collapsed; open the outlets you want to compare.
+  const [openArticles, setOpenArticles] = useState<Set<string>>(new Set());
 
   const [cluster, setCluster] = useState<ClusterData | null>(null);
   const [analysisEntries, setAnalysisEntries] = useState<Record<string, ArticleEntry>>({});
@@ -74,13 +88,14 @@ export function ClusterPage() {
       <AiBanner />
       {/* Same width as the Daily Brief on the home page. */}
       <PageContainer>
-        {/* Back link */}
+        {/* Back link: to the page that opened the topic (the Topics map
+            keeps its zoom and position). */}
         <Link
-          to="/"
+          to={back.to}
           className="inline-flex items-center gap-1.5 text-base text-muted-foreground mb-6 link"
         >
           <ArrowLeft size={17} />
-          Back to Today
+          {back.label}
         </Link>
 
         {loading && (
@@ -95,10 +110,10 @@ export function ClusterPage() {
             <AlertCircle className="text-destructive" size={32} />
             <p className="text-destructive font-medium">{error}</p>
             <Link
-              to="/"
+              to={back.to}
               className="px-5 py-2.5 bg-primary text-primary-foreground rounded text-base font-medium hover:opacity-90"
             >
-              Back to Today
+              {back.label}
             </Link>
           </StateBox>
         )}
@@ -108,7 +123,7 @@ export function ClusterPage() {
             {/* Cluster header */}
             <div>
               <div className="flex flex-wrap items-center gap-2 mb-3">
-                {cluster.region && <RegionTag region={cluster.region} className="text-sm py-1.5 px-2.5" />}
+                <TopicTags tags={topicTags(cluster.category, cluster.region, cluster.map?.genre_weights)} />
                 <span
                   className="px-3 py-1.5 rounded bg-secondary text-secondary-foreground text-sm"
                   style={{ fontFamily: "var(--font-data)" }}
@@ -167,20 +182,45 @@ export function ClusterPage() {
               </div>
             </div>
 
-            {/* Per-article breakdown */}
+            {/* Per-article breakdown, one dropdown per outlet */}
             <div>
-              <h2
-                className="mb-4"
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontWeight: 700,
-                  fontSize: "1.55rem",
-                  lineHeight: 1.2,
-                }}
-              >
-                Per-Article Breakdown
-              </h2>
-              <div className="space-y-4">
+              <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
+                <div>
+                  <h2
+                    style={{
+                      fontFamily: "var(--font-display)",
+                      fontWeight: 700,
+                      fontSize: "1.55rem",
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    Per-Article Breakdown
+                  </h2>
+                  <p className="mt-1 text-base text-muted-foreground">
+                    Open an outlet to see its summary and how its language was analyzed.
+                  </p>
+                </div>
+                {cluster.articles.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setOpenArticles(
+                        openArticles.size === cluster.articles.length
+                          ? new Set()
+                          : new Set(cluster.articles.map(a => a.url)),
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 rounded border border-border px-3.5 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                  >
+                    {openArticles.size === cluster.articles.length ? (
+                      <><ChevronsDownUp size={16} /> Collapse all</>
+                    ) : (
+                      <><ChevronsUpDown size={16} /> Expand all</>
+                    )}
+                  </button>
+                )}
+              </div>
+              <div className="space-y-3">
                 {cluster.articles.map(article => (
                   <ArticleBlock
                     key={article.url}
@@ -188,6 +228,15 @@ export function ClusterPage() {
                     entry={analysisEntries[article.url]}
                     status={analysisStatus}
                     statusError={analysisError}
+                    open={openArticles.has(article.url)}
+                    onToggle={() =>
+                      setOpenArticles(prev => {
+                        const next = new Set(prev);
+                        if (next.has(article.url)) next.delete(article.url);
+                        else next.add(article.url);
+                        return next;
+                      })
+                    }
                   />
                 ))}
               </div>

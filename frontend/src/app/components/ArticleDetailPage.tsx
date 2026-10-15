@@ -3,13 +3,15 @@ import { Link, useSearchParams } from "react-router";
 import { ExternalLink, ArrowLeft, AlertCircle } from "lucide-react";
 import {
   Spinner, StateBox, LeanBadge, CredBadge, AnnotationLegend, AnnotatedText,
-  PageContainer, Chunk, Region, RegionTag,
+  PageContainer, Chunk, Region,
 } from "./shared";
+import { TopicTag, primaryTag } from "./topicTags";
 
 interface ArticleData {
   title?: string;
   source?: string;
   region?: Region | null;
+  category?: string | null;
   bias_label?: string;
   credibility_label?: string;
   credibility_score?: number;
@@ -84,7 +86,7 @@ export function ArticleDetailPage() {
         <article className="bg-card border border-border rounded overflow-hidden shadow-sm">
           {/* Article header */}
           <header className="p-6 sm:p-8 border-b border-border">
-            {data.region && <RegionTag region={data.region} className="mb-3" />}
+            <TopicTag tag={primaryTag(data.category, data.region)} className="mb-3" />
             <h1
               className="mb-4"
               style={{

@@ -1,136 +1,28 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router";
-import { RefreshCw, AlertCircle } from "lucide-react";
-import {
-  BrandIcon, Spinner, StateBox, AiBanner, SourceBadge, SectionLabel,
-  getTopicIcon, formatRelativeDate, Region, RegionTag,
-} from "./shared";
-import { DailyBriefCard, DailySummary } from "./DailyBrief";
+import { RefreshCw, AlertCircle, Map as MapIcon } from "lucide-react";
+import { Spinner, StateBox, AiBanner, PageContainer, formatRelativeDate, SITE_TIME_ZONE } from "./shared";
+import { DailyBrief, DailySummary, StatPill } from "./DailyBrief";
+import { TAG_ORDER, TOPIC_TAGS, TagSwatch } from "./topicTags";
 
-interface Cluster {
-  cluster_id: string;
-  summary: string;
-  highlighted_summary?: string;
-  titles: string[];
-  sources: string[];
-  urls: string[];
-  article_count: number;
-  source_credibility?: Array<{ score: number | null; label: string }>;
-  defined_terms?: Array<{ term: string; definition: string }>;
-  region?: Region | null;
-}
-
-interface SummariesData {
-  last_updated?: string;
-  clusters: Cluster[];
-}
-
-function ClusterCard({ cluster }: { cluster: Cluster }) {
-  const icon = getTopicIcon(cluster.summary);
-  const title = cluster.titles?.[0] ?? "News Summary";
-  const detailUrl = `/cluster/${encodeURIComponent(cluster.cluster_id)}`;
-
-  return (
-    <article className="bg-card border border-border rounded flex flex-col gap-0 hover:shadow-md transition-shadow">
-      {/* Head */}
-      <div className="flex items-start gap-3 p-5 pb-4">
-        <span className="text-2xl leading-none mt-0.5 shrink-0">{icon}</span>
-        <div className="min-w-0 flex-1">
-          <Link
-            to={detailUrl}
-            className="block link"
-            style={{
-              fontFamily: "var(--font-display)",
-              fontWeight: 600,
-              fontSize: "1.2rem",
-              lineHeight: 1.3,
-            }}
-          >
-            {title.length > 90 ? title.slice(0, 90) + "…" : title}
-          </Link>
-          <span
-            className="mt-1.5 flex items-center gap-2 text-sm text-muted-foreground"
-            style={{ fontFamily: "var(--font-data)" }}
-          >
-            {cluster.region && <RegionTag region={cluster.region} />}
-            {cluster.article_count} article{cluster.article_count !== 1 ? "s" : ""}
-          </span>
-        </div>
-      </div>
-
-      {/* Summary */}
-      <div
-        className="px-5 pb-4 text-base text-foreground leading-relaxed flex-1 [&_mark]:bg-yellow-100 [&_mark]:rounded-sm [&_mark]:px-0.5"
-        dangerouslySetInnerHTML={{ __html: cluster.highlighted_summary || cluster.summary }}
-      />
-
-      {/* Sources */}
-      <div className="px-5 pb-4 pt-3 border-t border-border space-y-2">
-        <SectionLabel>Sources</SectionLabel>
-        <div className="flex flex-wrap gap-1.5">
-          {cluster.sources.map((src, i) => (
-            <SourceBadge
-              key={i}
-              source={src}
-              url={cluster.urls?.[i]}
-              credibility={cluster.source_credibility?.[i] ?? undefined}
-              lean={cluster.source_credibility?.[i]?.label}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* Key terms */}
-      {cluster.defined_terms && cluster.defined_terms.length > 0 && (
-        <div className="px-5 pb-4 pt-3 border-t border-border space-y-2">
-          <SectionLabel>Key Terms</SectionLabel>
-          <div className="flex flex-wrap gap-1.5">
-            {cluster.defined_terms.map(t => (
-              <span
-                key={t.term}
-                title={t.definition}
-                className="cursor-help inline-flex px-2 py-0.5 rounded-sm text-sm font-medium bg-secondary text-secondary-foreground border border-border"
-              >
-                {t.term}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Footer link */}
-      <div className="px-5 py-3 border-t border-border text-right">
-        <Link
-          to={detailUrl}
-          className="text-base font-medium link"
-          style={{ color: "var(--accent)" }}
-        >
-          Full breakdown →
-        </Link>
-      </div>
-    </article>
-  );
+function todayHeading(): string {
+  return new Date().toLocaleDateString("en-US", {
+    weekday: "long", month: "long", day: "numeric", timeZone: SITE_TIME_ZONE,
+  });
 }
 
 export function HomePage() {
-  const [view, setView] = useState<"daily" | "topics">("daily");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [daily, setDaily] = useState<DailySummary | null>(null);
-  const [summaries, setSummaries] = useState<SummariesData | null>(null);
 
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      const [dailyRes, sumRes] = await Promise.all([
-        fetch("/api/daily-summary"),
-        fetch("/api/summaries"),
-      ]);
-      if (!sumRes.ok) throw new Error(`HTTP ${sumRes.status}`);
-      const [dailyData, sumData] = await Promise.all([dailyRes.json(), sumRes.json()]);
-      setDaily(dailyData);
-      setSummaries(sumData);
+      const res = await fetch("/api/daily-summary");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setDaily(await res.json());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load news");
     } finally {
@@ -140,77 +32,58 @@ export function HomePage() {
 
   useEffect(() => { load(); }, []);
 
-  const noBrief = !daily?.sections?.length;
-  const noClusters = !summaries?.clusters?.length;
-  const isEmpty = !loading && !error && noBrief && noClusters;
+  const isEmpty = !loading && !error && !daily?.sections?.length;
 
   return (
     <div>
       <AiBanner />
-
-      {/* Hero */}
-      <div className="border-b border-border bg-card">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 text-center">
-          <h1
-            className="flex items-center justify-center gap-3 sm:gap-4 tracking-tight text-brand-dark"
-            style={{
-              fontFamily: "var(--font-display)",
-              fontWeight: 800,
-              fontSize: "clamp(2.5rem, 6vw, 4rem)",
-              lineHeight: 1.1,
-              letterSpacing: "-0.01em",
-            }}
-          >
-            <BrandIcon className="w-[0.9em] h-[0.9em]" />
-            <span>
-              Po<span className="text-brand-accent">literate</span>
-            </span>
-          </h1>
-          <p className="mt-3 text-sm tracking-[0.2em] uppercase text-muted-foreground">
-            Multi-Source&nbsp;&nbsp;·&nbsp;&nbsp;Unbiased&nbsp;&nbsp;·&nbsp;&nbsp;Political News
-          </p>
-          <p className="mt-4 max-w-2xl mx-auto text-muted-foreground text-lg leading-relaxed">
-            Today's political news, summarized across trusted outlets with key terms highlighted
-            and sources one click away.
-          </p>
-        </div>
-      </div>
-
-      {/* Controls */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-6 pb-2 flex items-center justify-between flex-wrap gap-3">
-        <div className="flex gap-0.5 p-1 bg-secondary rounded">
-          {(["daily", "topics"] as const).map(v => (
-            <button
-              key={v}
-              onClick={() => setView(v)}
-              className={[
-                "px-5 py-2 rounded text-base font-medium transition-colors capitalize",
-                view === v
-                  ? "bg-card text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              ].join(" ")}
+      <PageContainer>
+        {/* Header */}
+        <header className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4 pb-6 mb-8 border-b border-border">
+          <div>
+            <p
+              className="text-sm tracking-[0.2em] uppercase text-muted-foreground"
+              style={{ fontFamily: "var(--font-data)" }}
             >
-              {v === "daily" ? "Daily Brief" : "Topics"}
-            </button>
-          ))}
-        </div>
+              {todayHeading()}
+            </p>
+            <h1
+              className="mt-1 tracking-tight"
+              style={{
+                fontFamily: "var(--font-display)",
+                fontWeight: 800,
+                fontSize: "clamp(2.2rem, 5vw, 3.2rem)",
+                lineHeight: 1.05,
+                letterSpacing: "-0.01em",
+              }}
+            >
+              Today's Brief
+            </h1>
+            <p className="mt-2 max-w-2xl text-lg text-muted-foreground leading-relaxed">
+              The day's most-covered stories, summarized across outlets. Hover a highlighted term
+              for its definition; open a story for every outlet's account.
+            </p>
+          </div>
+          {daily && !isEmpty && (
+            <div className="flex flex-col items-start sm:items-end gap-2">
+              <div className="flex flex-wrap gap-2">
+                <StatPill value={daily.cluster_count} label="topics" />
+                <StatPill value={daily.total_articles} label="articles" />
+                <StatPill value={daily.source_count} label="sources" />
+              </div>
+              {daily.last_updated && (
+                <span className="text-sm text-muted-foreground" style={{ fontFamily: "var(--font-data)" }}>
+                  Updated {formatRelativeDate(daily.last_updated)}
+                </span>
+              )}
+            </div>
+          )}
+        </header>
 
-        {summaries?.last_updated && (
-          <span
-            className="text-sm text-muted-foreground"
-            style={{ fontFamily: "var(--font-data)" }}
-          >
-            Updated {formatRelativeDate(summaries.last_updated)}
-          </span>
-        )}
-      </div>
-
-      {/* Content */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 pb-12">
         {loading && (
           <StateBox>
             <Spinner />
-            <p>Loading today's summaries…</p>
+            <p>Loading today's brief…</p>
           </StateBox>
         )}
 
@@ -227,31 +100,65 @@ export function HomePage() {
           </StateBox>
         )}
 
-        {!loading && !error && isEmpty && (
+        {isEmpty && (
           <StateBox>
-            <p>No summaries available yet. Check back soon.</p>
-            <button
-              onClick={load}
-              className="flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded text-base font-medium hover:opacity-90"
-            >
-              <RefreshCw size={16} /> Refresh
-            </button>
+            <p>No topic has enough coverage for a brief yet. Check back soon.</p>
+            <div className="flex flex-wrap justify-center gap-3">
+              <button
+                onClick={load}
+                className="flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded text-base font-medium hover:opacity-90"
+              >
+                <RefreshCw size={16} /> Refresh
+              </button>
+              <Link
+                to="/topics"
+                className="flex items-center gap-2 px-5 py-2.5 border border-border rounded text-base font-medium hover:bg-secondary transition-colors"
+              >
+                <MapIcon size={16} /> See all topics
+              </Link>
+            </div>
           </StateBox>
         )}
 
-        {!loading && !error && !isEmpty && (
+        {!loading && !error && daily && !isEmpty && (
           <>
-            {view === "daily" && daily && !noBrief && <DailyBriefCard data={daily} />}
-            {view === "topics" && summaries && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {summaries.clusters.map(c => (
-                  <ClusterCard key={c.cluster_id} cluster={c} />
-                ))}
-              </div>
-            )}
+            {/* Tag key */}
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mb-8 text-sm text-muted-foreground">
+              {TAG_ORDER.map(t => (
+                <span key={t} className="inline-flex items-center gap-2">
+                  <TagSwatch tag={t} />
+                  {TOPIC_TAGS[t].label}
+                </span>
+              ))}
+            </div>
+
+            <DailyBrief data={daily} />
+
+            <Link
+              to="/topics"
+              className="group mt-10 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border bg-card px-6 py-5 hover:border-border-strong transition-colors"
+            >
+              {/* Phones get the topic list (TopicsPage), not the map. */}
+              <span>
+                <span className="block text-lg font-semibold" style={{ fontFamily: "var(--font-display)" }}>
+                  <span className="md:hidden">Every topic today</span>
+                  <span className="hidden md:inline">Every topic today, mapped</span>
+                </span>
+                <span className="block text-base text-muted-foreground">
+                  <span className="md:hidden">All of today's topics, grouped by tag.</span>
+                  <span className="hidden md:inline">
+                    See how today's stories relate: politics at the center, health, tech and business around it.
+                  </span>
+                </span>
+              </span>
+              <span className="inline-flex items-center gap-2 font-semibold text-brand-accent">
+                <span className="md:hidden">See every topic</span>
+                <span className="hidden md:inline-flex items-center gap-2"><MapIcon size={18} /> Open the map</span>
+              </span>
+            </Link>
           </>
         )}
-      </div>
+      </PageContainer>
     </div>
   );
 }
