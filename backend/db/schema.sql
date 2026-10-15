@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS articles (
 
     -- 'us' or 'world', from the feed the article came from (NULL = older rows)
     region TEXT,
+    -- 'politics', 'health', 'tech' or 'business', from the feed or URL section
+    -- (NULL = older rows, all political)
+    category TEXT,
 
     -- Analysis results (from DeBERTa multi-head analyzer)
     analysis_json TEXT,
@@ -73,7 +76,13 @@ CREATE TABLE IF NOT EXISTS clusters (
     article_count INTEGER,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     -- 'us' or 'world': most of its articles' region
-    region TEXT
+    region TEXT,
+    -- 'politics' for political and policy topics, else 'health', 'tech'
+    -- or 'business'
+    category TEXT,
+    -- Outlets that reported the story, including earlier coverage in the
+    -- lookback window (the Daily Brief ranks topics by it)
+    outlet_count INTEGER
 );
 
 -- ---------------------------------------------------------------------------
@@ -104,7 +113,12 @@ CREATE TABLE IF NOT EXISTS scraped_articles_archive (
     authors TEXT,
     publish_date TEXT,
     scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    analysis_json 
+    analysis_json ,
+    -- From the feed, as on articles; kept so earlier coverage can count
+    -- toward a story's outlets
+    region TEXT,
+    category TEXT,
+    policy INTEGER DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_archive_scraped_at ON scraped_articles_archive(scraped_at);

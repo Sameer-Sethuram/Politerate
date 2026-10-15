@@ -33,6 +33,15 @@ WORLD = "world"
 # news...) are skipped. See region_from_url.
 BY_SECTION = "by_section"
 
+# Categories. Political news is the site's core. Health, tech and business
+# articles are clustered with everything else but only go on to credibility
+# analysis and summarizing if their story is widely covered or about policy
+# (summarizer.gate_genre_topics).
+POLITICS = "politics"
+HEALTH = "health"
+TECH = "tech"
+BUSINESS = "business"
+
 
 def google_news_feed(domain: str) -> str:
     """Google News RSS search for one outlet's last day of articles."""
@@ -48,6 +57,12 @@ class Feed:
     # U.S. news). BY_SECTION: only articles whose URL section says.
     region: str
     url: str
+    # The category for articles whose URL section doesn't say (an article's
+    # URL section wins, so a politics feed's /business/ story is business).
+    category: str = POLITICS
+    # A policy subsection (e.g. The Hill's /policy/healthcare/): its articles
+    # count as policy news.
+    policy: bool = False
 
 
 # Checked 2026-10-13. Not included because their article pages reject every
@@ -92,8 +107,51 @@ FEEDS = [
     Feed("The Independent", US, "https://www.independent.co.uk/news/world/americas/us-politics/rss"),
     Feed("The Independent", WORLD, "https://www.independent.co.uk/news/world/rss"),
     # CNN stopped publishing RSS in 2024. Site-wide Google News results; only
-    # its /politics/, /us/ and /world/ sections are kept.
+    # its /politics/, /us/ and /world/ sections are kept. (Google News can't
+    # search one section, so CNN has no health, tech or business feeds.)
     Feed("CNN", BY_SECTION, google_news_feed("cnn.com")),
+
+    # --- Health, tech and business (checked 2026-10-15) ---
+    # Not included: UPI's health and science feeds and CS Monitor's tech feed
+    # (nothing new since 2025), CS Monitor's economy feed (404), The Hill's
+    # finance feed (empty), Deseret's business feed (mostly sports and faith).
+    Feed("Fox", US, "https://moxie.foxnews.com/google-publisher/health.xml", HEALTH),
+    Feed("Fox", US, "https://moxie.foxnews.com/google-publisher/tech.xml", TECH),
+    # Fox Business, labelled Fox so one company's two sites count as one outlet.
+    Feed("Fox", US, "https://moxie.foxbusiness.com/google-publisher/latest.xml", BUSINESS),
+    Feed("NBC", US, "https://feeds.nbcnews.com/nbcnews/public/health", HEALTH),
+    Feed("NBC", US, "https://feeds.nbcnews.com/nbcnews/public/tech", TECH),
+    Feed("NBC", US, "https://feeds.nbcnews.com/nbcnews/public/business", BUSINESS),
+    Feed("NY Post", US, "https://nypost.com/health/feed/", HEALTH),
+    Feed("NY Post", US, "https://nypost.com/tech/feed/", TECH),
+    Feed("NY Post", US, "https://nypost.com/business/feed/", BUSINESS),
+    Feed("CBS", US, "https://www.cbsnews.com/latest/rss/health", HEALTH),
+    Feed("CBS", US, "https://www.cbsnews.com/latest/rss/technology", TECH),
+    Feed("CBS", US, "https://www.cbsnews.com/latest/rss/moneywatch", BUSINESS),
+    Feed("ABC", US, "https://abcnews.com/abcnews/healthheadlines", HEALTH),
+    Feed("ABC", US, "https://abcnews.com/abcnews/technologyheadlines", TECH),
+    Feed("ABC", US, "https://abcnews.com/abcnews/moneyheadlines", BUSINESS),
+    Feed("Guardian", WORLD, "https://www.theguardian.com/society/health/rss", HEALTH),
+    Feed("Guardian", US, "https://www.theguardian.com/us-news/healthcare/rss", HEALTH, policy=True),
+    Feed("Guardian", US, "https://www.theguardian.com/us/technology/rss", TECH),
+    Feed("Guardian", US, "https://www.theguardian.com/us/business/rss", BUSINESS),
+    Feed("UPI", BY_SECTION, "https://rss.upi.com/news/business_news.rss", BUSINESS),
+    Feed("The Hill", US, "https://thehill.com/policy/healthcare/feed/", HEALTH, policy=True),
+    Feed("The Hill", US, "https://thehill.com/policy/technology/feed/", TECH, policy=True),
+    Feed("The Hill", US, "https://thehill.com/business/feed/", BUSINESS),
+    Feed("PBS NewsHour", US, "https://www.pbs.org/newshour/feeds/rss/health", HEALTH),
+    Feed("PBS NewsHour", US, "https://www.pbs.org/newshour/feeds/rss/economy", BUSINESS),
+    Feed("BBC", WORLD, "https://feeds.bbci.co.uk/news/health/rss.xml", HEALTH),
+    Feed("BBC", WORLD, "https://feeds.bbci.co.uk/news/technology/rss.xml", TECH),
+    Feed("BBC", WORLD, "https://feeds.bbci.co.uk/news/business/rss.xml", BUSINESS),
+    Feed("NPR", US, "https://feeds.npr.org/1128/rss.xml", HEALTH),
+    Feed("NPR", US, "https://feeds.npr.org/1027/rss.xml", HEALTH, policy=True),  # Healthcare
+    Feed("NPR", US, "https://feeds.npr.org/1019/rss.xml", TECH),
+    Feed("NPR", US, "https://feeds.npr.org/1006/rss.xml", BUSINESS),
+    Feed("NPR", US, "https://feeds.npr.org/1017/rss.xml", BUSINESS),  # Economy
+    Feed("The Independent", WORLD, "https://www.independent.co.uk/news/health/rss", HEALTH),
+    Feed("The Independent", WORLD, "https://www.independent.co.uk/tech/rss", TECH),
+    Feed("The Independent", WORLD, "https://www.independent.co.uk/news/business/rss", BUSINESS),
 ]
 
 # URL sections that mark an article's region, checked in order.
@@ -118,6 +176,30 @@ def region_from_url(url: str) -> Optional[str]:
         if pattern.search(parsed.path):
             return region
     return None
+
+
+# URL sections that mark an article's category, checked in order (so The
+# Hill's /policy/healthcare/ is health). Sections naming none (CBS's /news/,
+# BBC's /news/articles/...) leave the feed's category.
+_CATEGORY_SECTIONS = [
+    (re.compile(r"/(health|healthcare|health_news|wellness)/", re.IGNORECASE), HEALTH),
+    (re.compile(r"/(tech|technology)/", re.IGNORECASE), TECH),
+    (re.compile(r"/(business|economy|moneywatch|money|markets|personal-finance)/", re.IGNORECASE), BUSINESS),
+    (re.compile(r"/(politics|us-politics|homenews)/", re.IGNORECASE), POLITICS),
+]
+_POLICY_SECTION = re.compile(r"/(policy|politics)/", re.IGNORECASE)
+
+
+def category_from_url(url: str) -> Optional[str]:
+    path = urlparse(url).path
+    for pattern, category in _CATEGORY_SECTIONS:
+        if pattern.search(path):
+            return category
+    return None
+
+
+def is_policy_url(url: str) -> bool:
+    return bool(_POLICY_SECTION.search(urlparse(url).path))
 
 # ------------------------------------------------------------
 # Google News link resolution
@@ -229,7 +311,7 @@ def is_google_news_entry(entry):
 # RSS Fetching
 # ------------------------------------------------------------
 
-def fetch_rss_feed(url, region=US):
+def fetch_rss_feed(url, region=US, category=POLITICS, policy=False):
     feed = feedparser.parse(url)
     articles = []
     seen = set()
@@ -279,6 +361,8 @@ def fetch_rss_feed(url, region=US):
             "title": entry.title,
             "link": link,
             "region": article_region,
+            "category": category_from_url(link) or category,
+            "policy": policy or is_policy_url(link),
             "published": entry.get("published"),
             "summary": entry.get("summary")
         })
@@ -289,24 +373,33 @@ def fetch_rss_feed(url, region=US):
 # Public API
 # ------------------------------------------------------------
 
-def get_feed_links() -> tuple[dict[str, list[str]], dict[str, str]]:
-    """Today's links from every feed: ({source: [urls]}, {url: region}).
+def get_feed_links() -> tuple[dict[str, list[str]], dict[str, dict]]:
+    """Today's links from every feed: ({source: [urls]},
+    {url: {"region", "category", "policy"}}).
 
-    A URL listed by both a U.S. and a world feed with no section in its URL
-    to decide (e.g. BBC's U.S. & Canada and World feeds) counts as U.S. news.
+    A URL listed by several feeds with no section in its URL to decide (e.g.
+    BBC's U.S. & Canada and World feeds, or CBS's politics and health feeds)
+    counts as U.S. news over world news, and political news over health,
+    tech or business; it's policy news if any listing says so.
     """
     links_by_source: dict[str, list[str]] = {}
-    region_by_url: dict[str, str] = {}
+    meta_by_url: dict[str, dict] = {}
     for feed in FEEDS:
-        print(f"Fetching RSS for {feed.source} ({feed.region})...")
+        print(f"Fetching RSS for {feed.source} ({feed.category}, {feed.region})...")
         urls = links_by_source.setdefault(feed.source, [])
-        for entry in fetch_rss_feed(feed.url, feed.region):
+        for entry in fetch_rss_feed(feed.url, feed.region, feed.category, feed.policy):
             link = entry["link"]
-            if link not in region_by_url:
+            meta = meta_by_url.get(link)
+            if meta is None:
                 urls.append(link)
-            if region_by_url.get(link) != US:
-                region_by_url[link] = entry["region"]
-    return links_by_source, region_by_url
+                meta_by_url[link] = {k: entry[k] for k in ("region", "category", "policy")}
+                continue
+            if entry["region"] == US:
+                meta["region"] = US
+            if entry["category"] == POLITICS:
+                meta["category"] = POLITICS
+            meta["policy"] = meta["policy"] or entry["policy"]
+    return links_by_source, meta_by_url
 
 def get_all_top_story_links():
     return get_feed_links()[0]

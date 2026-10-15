@@ -171,12 +171,20 @@ def scheduled_job():
 
 
 def daily_snapshot_job():
-    from backend.db.cache import save_daily_snapshot
+    from backend.db.cache import prune_archive, save_daily_snapshot
+    from backend.pipeline.summarizer import LOOKBACK_HOURS
     logger.info("Running end-of-day snapshot job...")
     try:
         save_daily_snapshot()
     except Exception as e:
         logger.error(f"Snapshot job failed: {e}")
+    # Downloads past the lookback window can't count toward any story now.
+    # This is where health, tech and business articles that never became
+    # relevant are finally dropped; until then each run re-checks them.
+    try:
+        prune_archive(hours=LOOKBACK_HOURS)
+    except Exception as e:
+        logger.error(f"Pruning old downloads failed: {e}")
 
 
 def start_scheduler():

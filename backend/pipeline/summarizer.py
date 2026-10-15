@@ -38,13 +38,35 @@ logger = logging.getLogger(__name__)
 US_REGION = "us"
 WORLD_REGION = "world"
 
-# Tune from here. A cluster must have >= MIN_ARTICLES_PER_CLUSTER to be in the
-# daily brief; at most MAX_BRIEF_TOPICS_BY_REGION survive per region (U.S.
-# first, then world), and MAX_CLUSTERS_IN_BRIEF_INPUT caps what we actually
-# feed to the hierarchical BART pass — keeping the input short avoids
-# degenerate generation when BART runs out of coherent things to say.
-MIN_ARTICLES_PER_CLUSTER = 3
-MAX_BRIEF_TOPICS_BY_REGION = {US_REGION: 6, WORLD_REGION: 4}
+# Tune from here. Topics compete for BRIEF_SLOTS spots in the Daily Brief by
+# relevance: how many outlets reported them (counting earlier coverage in
+# the lookback window), times a weight that favors U.S. political and policy
+# news. A topic needs MIN_BRIEF_OUTLETS outlets to compete.
+# MAX_CLUSTERS_IN_BRIEF_INPUT caps what we actually feed to the hierarchical
+# BART pass — keeping the input short avoids degenerate generation when BART
+# runs out of coherent things to say.
+BRIEF_SLOTS = 10
+MIN_BRIEF_OUTLETS = 3
+BRIEF_WEIGHTS = {"us_politics": 1.5, "world_politics": 1.25, "genre": 1.0}
+# Health, tech and business topics compete with each other for this many
+# spots, and can take more by outscoring political ones.
+GENRE_SLOTS = 2
+
+# Categories, as tagged by rss_scraper. Articles saved before categories
+# existed came from political feeds.
+POLITICS = "politics"
+# Health, tech and business topics go on to credibility analysis and
+# summarizing only if they're political or about policy, or if this many
+# outlets report them ("more than 3"; outlets, not articles, so one site's
+# follow-ups don't count).
+GENRE_MIN_OUTLETS = 4
+# How far back earlier coverage counts toward a story's outlets, in hours.
+# Outlets report the same story hours apart: over four days of articles the
+# 4th outlet on a story came within 12 hours of the first 55% of the time,
+# within 24h 77%, 36h 84%, 48h 90% (a recall picked up 28 hours late, say).
+# Past ~36h it was mostly multi-day stories, which have fresh coverage each
+# day anyway. Downloads older than this are deleted at the end of the day.
+LOOKBACK_HOURS = 36
 MAX_CLUSTERS_IN_BRIEF_INPUT = 5
 
 # Conditional generation tiers: (source_token_threshold, (max_length, min_length)).
@@ -421,24 +443,133 @@ def majority_region(articles: list[dict]) -> str:
     """A topic's region: most of its articles' (ties go to U.S. news). Each
     article's own region comes from its outlet's URL section or feed, which
     can disagree between outlets on the same story (Al Jazeera's feed is all
-    world news, for one)."""
-    world = sum(1 for a in articles if a.get("region") == WORLD_REGION)
-    return WORLD_REGION if world > len(articles) - world else US_REGION
+    world news, for one). Articles from health, tech and business feeds only
+    vote when no political feed covered the story: those sections aren't
+    split by region, so their region is just the outlet's home (U.S. health
+    desks covering the Pope's surgery, UK tech desks covering U.S. states
+    suing OpenAI)."""
+    voters = [a for a in articles if is_political(a)] or articles
+    world = sum(1 for a in voters if a.get("region") == WORLD_REGION)
+    return WORLD_REGION if world > len(voters) - world else US_REGION
+
+
+def is_political(article: dict) -> bool:
+    return (article.get("category") or POLITICS) == POLITICS
+
+
+# Words in a headline that mark a health, tech or business story as being
+# about government action. On ~240 hand-labelled health, tech and business
+# headlines, these plus the feeds' policy sections found 84% of the policy
+# stories and flagged 5 that weren't (a president's granddaughter in hospital,
+# an "FDA-approved" treatment); most misses named UK ministers without a
+# title. Topics are kept if any of their articles is flagged, which catches
+# more of them.
+_POLICY_WORDS = re.compile(r"\b(" + "|".join([
+    r"congress\w*", r"senat\w*", r"lawmakers?", r"legislat\w*", r"white house", r"administration",
+    r"trump\w*", r"biden", r"governor", r"mayor", r"minister", r"secretary", r"chancellor",
+    r"parliament", r"westminster", r"government\w*", r"federal", r"fed", r"central bank",
+    r"bank of england", r"treasury", r"irs", r"fda", r"ftc", r"fcc", r"cdc", r"hhs", r"epa", r"doj",
+    r"justice department", r"supreme court", r"attorney general", r"states? (?:sue|sues|sued|accuse)\w*",
+    r"sued by \d+ states", r"regulat\w*", r"fined?", r"fines", r"sanctions?", r"tariffs?", r"tax(?:es)?",
+    r"subsid\w*", r"bans?", r"policy", r"policies", r"budget", r"elections?", r"midterms?", r"voters?",
+    r"medicare", r"medicaid", r"social security", r"cola", r"obamacare", r"affordable care act", r"nhs",
+    r"minimum wage", r"aid", r"pac", r"lobby\w*", r"imf", r"authorities", r"crackdown",
+]) + r")\b", re.IGNORECASE)
+
+
+def mentions_policy(headline: str) -> bool:
+    return bool(_POLICY_WORDS.search(headline or ""))
+
+
+def is_policy_article(article: dict) -> bool:
+    """A health, tech or business article about government action."""
+    return bool(article.get("policy")) or mentions_policy(article.get("title", ""))
+
+
+def topic_is_political(articles: list[dict]) -> bool:
+    """Political news, or health, tech or business news about policy, which
+    counts the same as political news."""
+    return any(is_political(a) or is_policy_article(a) for a in articles)
+
+
+def topic_category(articles: list[dict]) -> str:
+    """POLITICS for political and policy topics, else the most common of
+    the articles' categories."""
+    if topic_is_political(articles):
+        return POLITICS
+    return Counter(a.get("category") for a in articles).most_common(1)[0][0]
+
+
+def story_outlets(articles: list[dict], prior: list[dict] = ()) -> int:
+    """Outlets that reported a story: today's articles' plus earlier
+    coverage from the lookback window."""
+    return len({a.get("source") for a in list(articles) + list(prior)})
+
+
+def gate_genre_topics(clusters: dict, prior_by_cluster: Optional[dict] = None) -> tuple[dict, list[dict]]:
+    """(kept topics, dropped articles). Political and policy topics are
+    kept, and so are health, tech and business topics at least
+    GENRE_MIN_OUTLETS outlets have reported, counting earlier coverage in
+    the lookback window (which also counts toward "political"). Dropped
+    articles have only been embedded and compared with the rest; they stay
+    in the download cache, so each hourly run re-checks them as more
+    outlets report, until the end-of-day prune deletes them."""
+    prior_by_cluster = prior_by_cluster or {}
+    kept, dropped = {}, []
+    for cluster_id, articles in clusters.items():
+        prior = prior_by_cluster.get(cluster_id, [])
+        if topic_is_political(articles + prior) or story_outlets(articles, prior) >= GENRE_MIN_OUTLETS:
+            kept[cluster_id] = articles
+        else:
+            dropped.extend(articles)
+    return kept, dropped
+
+
+def cluster_outlets(cluster: dict) -> int:
+    """Outlets that reported a saved topic. Topics saved before outlet
+    counts were stored list each outlet once in `sources`."""
+    return cluster.get("outlet_count") or len(set(cluster.get("sources") or []))
+
+
+def is_genre_topic(cluster: dict) -> bool:
+    return (cluster.get("category") or POLITICS) != POLITICS
+
+
+def brief_relevance(cluster: dict) -> float:
+    """Outlets reporting the topic, weighted toward U.S. political and
+    policy news (BRIEF_WEIGHTS)."""
+    if is_genre_topic(cluster):
+        weight = BRIEF_WEIGHTS["genre"]
+    elif cluster_region(cluster) == US_REGION:
+        weight = BRIEF_WEIGHTS["us_politics"]
+    else:
+        weight = BRIEF_WEIGHTS["world_politics"]
+    return cluster_outlets(cluster) * weight
+
+
+def is_brief_topic(cluster: dict) -> bool:
+    """A real multi-article topic enough outlets have reported to compete
+    for the Daily Brief."""
+    return (
+        not str(cluster.get("cluster_id", "")).startswith("singleton_")
+        and cluster_outlets(cluster) >= MIN_BRIEF_OUTLETS
+    )
 
 
 def select_brief_clusters(clusters: list[dict]) -> list[dict]:
-    """The clusters that make the Daily Brief: real multi-article topics,
-    largest first, up to MAX_BRIEF_TOPICS_BY_REGION per region, U.S. first."""
-    eligible = [
-        c for c in clusters
-        if not str(c.get("cluster_id", "")).startswith("singleton_")
-        and c.get("article_count", 0) >= MIN_ARTICLES_PER_CLUSTER
-    ]
-    eligible.sort(key=lambda c: c.get("article_count", 0), reverse=True)
-    selected = []
-    for region, limit in MAX_BRIEF_TOPICS_BY_REGION.items():
-        selected.extend([c for c in eligible if cluster_region(c) == region][:limit])
-    return selected
+    """The Daily Brief's topics, most relevant first: the best GENRE_SLOTS
+    health, tech and business topics, then whatever topics of any kind are
+    most relevant (brief_relevance), up to BRIEF_SLOTS in all."""
+    eligible = sorted((c for c in clusters if is_brief_topic(c)), key=brief_relevance, reverse=True)
+    selected = [c for c in eligible if is_genre_topic(c)][:GENRE_SLOTS]
+    chosen = {id(c) for c in selected}
+    for c in eligible:
+        if len(selected) >= BRIEF_SLOTS:
+            break
+        if id(c) not in chosen:
+            selected.append(c)
+            chosen.add(id(c))
+    return sorted(selected, key=brief_relevance, reverse=True)
 
 
 class PoliteratePipeline:
@@ -484,14 +615,19 @@ class PoliteratePipeline:
         return processed
 
     def cluster(self, articles: list[dict]) -> dict:
+        return self.cluster_with_prior(articles, [])[0]
+
+    def cluster_with_prior(self, articles: list[dict], prior: list[dict]) -> tuple[dict, dict]:
+        """({cluster_id: [articles]}, {cluster_id: [prior articles on the
+        same story]}); see ArticleClusterer.cluster_with_prior."""
         logger.info("Step 3: Clustering articles by topic...")
         self.clusterer = ArticleClusterer(
             similarity_threshold=self.similarity_threshold,
             min_cluster_size=self.min_cluster_size
         )
-        clusters = self.clusterer.cluster(articles)
+        clusters, prior_by_cluster = self.clusterer.cluster_with_prior(articles, prior)
         logger.info(f"Created {len(clusters)} topic clusters")
-        return clusters
+        return clusters, prior_by_cluster
 
     def filter_credibility(self, articles: list[dict]) -> tuple[list[dict], list[dict]]:
         logger.info("Step 4: Filtering by credibility...")
@@ -504,6 +640,39 @@ class PoliteratePipeline:
         passed, failed = filter_by_credibility(articles, cached)
         logger.info(f"Credibility filter: {len(passed)} passed, {len(failed)} filtered")
         return passed, failed
+
+    def _lookback_articles(self, exclude_urls) -> list[dict]:
+        try:
+            from backend.db.cache import get_lookback_articles
+            return get_lookback_articles(LOOKBACK_HOURS, exclude_urls)
+        except Exception as e:
+            logger.warning(f"Could not load earlier coverage, counting today's outlets only: {e}")
+            return []
+
+    def _check_genre_credibility(self, clusters: dict) -> tuple[dict, list[dict]]:
+        """Credibility-check the health, tech and business articles in the
+        kept topics, as political articles were before clustering. Returns
+        the topics without the ones that failed (a topic left with too few
+        articles or outlets splits into single articles) and those failures."""
+        genre = [a for articles in clusters.values() for a in articles if not is_political(a)]
+        if not genre:
+            return clusters, []
+        _, failed = self.filter_credibility(genre)
+        failed_ids = {id(a) for a in failed}
+        checked = {}
+        for cluster_id, articles in clusters.items():
+            kept = [a for a in articles if id(a) not in failed_ids]
+            is_topic = not str(cluster_id).startswith("singleton_")
+            if len(kept) == len(articles) or (
+                is_topic
+                and len(kept) >= self.min_cluster_size
+                and len({a.get("source") for a in kept}) >= 2
+            ):
+                checked[cluster_id] = kept
+            else:
+                for i, article in enumerate(kept):
+                    checked[f"singleton_{cluster_id}_{i}"] = [article]
+        return checked, failed
 
     def _bart_generate(
         self,
@@ -813,8 +982,7 @@ class PoliteratePipeline:
         """Build a coherent daily brief via hierarchical summarization.
 
         Strategy:
-          1. Pick the top N clusters by article count (filtering singletons
-             and small clusters via MIN_ARTICLES_PER_CLUSTER / MAX_...).
+          1. Take the brief's topics (is_brief_topic), the caller's order.
           2. If the model is loaded, feed the top MAX_CLUSTERS_IN_BRIEF_INPUT
              per-cluster summaries back through BART for a unified brief.
           3. If no model or BART produces garbage, fall back to
@@ -857,12 +1025,8 @@ class PoliteratePipeline:
 
     def get_daily_summary_data(self, clusters: list[dict], include_unified: bool = True) -> dict:
         """Get all data needed for the daily summary view."""
-        filtered_clusters = [
-            c for c in clusters
-            if not str(c.get("cluster_id", "")).startswith("singleton_")
-            and c.get("article_count", 0) >= MIN_ARTICLES_PER_CLUSTER
-        ]
-        filtered_clusters.sort(key=lambda c: c.get("article_count", 0), reverse=True)
+        filtered_clusters = [c for c in clusters if is_brief_topic(c)]
+        filtered_clusters.sort(key=brief_relevance, reverse=True)
 
         # Collect unique sources across all clusters. One representative URL
         # per source (the first one we saw for that source) so badges can
@@ -900,6 +1064,11 @@ class PoliteratePipeline:
                 "bullets": [self.highlighter.highlight(b) for b in bullets],
                 "article_count": c.get("article_count", 0),
                 "region": cluster_region(c),
+                # For sizing topics: outlets reporting the story, and its
+                # weighted relevance (brief_relevance), highest first.
+                "outlet_count": cluster_outlets(c),
+                "category": c.get("category") or POLITICS,
+                "relevance": brief_relevance(c),
             })
 
         unified_summary = self.create_daily_summary(filtered_clusters) if include_unified else ""
@@ -915,7 +1084,11 @@ class PoliteratePipeline:
             "clusters": filtered_clusters
         }
 
-    def process_clusters(self, clusters: dict) -> list[dict]:
+    def process_clusters(self, clusters: dict, prior_by_cluster: Optional[dict] = None) -> list[dict]:
+        """Summarize each topic. `prior_by_cluster` (earlier coverage in the
+        lookback window) counts toward a topic's outlets and category only;
+        summaries use today's articles."""
+        prior_by_cluster = prior_by_cluster or {}
         results = []
         self._attach_cached_summaries(clusters)
         self._summary_budget = MAX_NEW_ARTICLE_SUMMARIES_PER_RUN
@@ -946,6 +1119,8 @@ class PoliteratePipeline:
                 "cluster_id": cluster_id,
                 "article_count": len(articles),
                 "region": region,
+                "category": topic_category(articles + prior_by_cluster.get(cluster_id, [])),
+                "outlet_count": story_outlets(articles, prior_by_cluster.get(cluster_id, [])),
                 "sources": sources,
                 "urls": source_urls,
                 "titles": [a.get("title") for a in articles],
@@ -978,7 +1153,8 @@ class PoliteratePipeline:
 
     def _build_raw_articles_with_dedup(self) -> dict:
         """Fetch RSS links, download only new URLs, merge with archive. Returns
-        {source: {url: article}}; each article carries its feed's region."""
+        {source: {url: article}}; each article carries its feed's region,
+        category and policy flag (rss_scraper.get_feed_links)."""
         try:
             from backend.pipeline.rss_scraper import get_feed_links
             from backend.pipeline.scraper import scrape_articles_by_source
@@ -991,12 +1167,10 @@ class PoliteratePipeline:
             mark_urls_seen,
             archive_articles,
             get_archived_articles,
-            prune_archive,
         )
 
-        prune_archive(days=7)
-
-        links_by_source, region_by_url = get_feed_links()
+        # Old downloads are pruned at the end of each day (main.daily_snapshot_job).
+        links_by_source, meta_by_url = get_feed_links()
         all_urls = [u for urls in links_by_source.values() for u in urls]
         unseen = set(filter_unseen_urls(all_urls))
 
@@ -1019,6 +1193,9 @@ class PoliteratePipeline:
                         continue
                     article["source"] = source
                     article["url"] = url
+                    # Stored with the download, for when the article is
+                    # earlier coverage in a later day's lookback.
+                    article.update(meta_by_url.get(url, {}))
                     flat_new.append(article)
 
             if flat_new:
@@ -1036,7 +1213,10 @@ class PoliteratePipeline:
                 if url in archived:
                     art = archived[url].copy()
                     art["source"] = source
-                    art["region"] = region_by_url.get(url, US_REGION)
+                    meta = meta_by_url.get(url, {})
+                    art["region"] = meta.get("region", US_REGION)
+                    art["category"] = meta.get("category", POLITICS)
+                    art["policy"] = meta.get("policy", False)
                     source_dict[url] = art
             if source_dict:
                 raw_articles[source] = source_dict
@@ -1081,12 +1261,30 @@ class PoliteratePipeline:
             return {"clusters": [], "stats": {"total": 0}}
 
         processed = self.preprocess(flat_articles)
+        political = [a for a in processed if is_political(a)]
+        genre = [a for a in processed if not is_political(a)]
+        # Earlier coverage: articles first downloaded within the lookback
+        # window that today's feeds no longer list. They're clustered with
+        # today's articles only to count who else reported each story.
+        prior = self.preprocess(self._lookback_articles(seen_urls))
 
-        passed, failed = self.filter_credibility(processed)
+        # Political news is credibility-checked before clustering. Health,
+        # tech and business articles are clustered unchecked, and only the
+        # ones in topics worth keeping get checked afterwards, so the rest
+        # cost no more than their embedding.
+        passed, failed = self.filter_credibility(political)
 
-        clusters = self.cluster(passed)
+        clusters, prior_by_cluster = self.cluster_with_prior(passed + genre, prior)
+        clusters, dropped = gate_genre_topics(clusters, prior_by_cluster)
+        clusters, genre_failed = self._check_genre_credibility(clusters)
+        failed += genre_failed
+        logger.info(
+            f"Health/tech/business: {len(genre)} articles, {len(dropped)} dropped "
+            f"(not political, not policy, fewer than {GENRE_MIN_OUTLETS} outlets), "
+            f"{len(genre_failed)} failed credibility"
+        )
 
-        results = self.process_clusters(clusters)
+        results = self.process_clusters(clusters, prior_by_cluster)
 
         # Persist every article that didn't make it into a named cluster so
         # the articles table holds the full picture, not just clustered ones.
@@ -1105,6 +1303,9 @@ class PoliteratePipeline:
         stats = {
             "total_scraped": len(flat_articles),
             "total_processed": len(processed),
+            "genre_articles": len(genre),
+            "genre_dropped": len(dropped),
+            "lookback_articles": len(prior),
             "passed_credibility": len(passed),
             "filtered_credibility": len(failed),
             "singleton_articles": len(singleton_articles),

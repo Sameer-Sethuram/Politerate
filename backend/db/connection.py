@@ -122,13 +122,25 @@ def _apply_column_migrations(cursor) -> None:
         ("summarized_at",           "TIMESTAMP"),
         ("source_type",             "TEXT DEFAULT 'scraped'"),
         ("region",                  "TEXT"),
+        ("category",                "TEXT"),
     ]
     cluster_migrations = [
         ("detailed_summary",        "TEXT"),
         ("region",                  "TEXT"),
+        ("category",                "TEXT"),
+        ("outlet_count",            "INTEGER"),
+    ]
+    archive_migrations = [
+        ("region",                  "TEXT"),
+        ("category",                "TEXT"),
+        ("policy",                  "INTEGER DEFAULT 0"),
     ]
 
-    for table, migrations in (("articles", article_migrations), ("clusters", cluster_migrations)):
+    for table, migrations in (
+        ("articles", article_migrations),
+        ("clusters", cluster_migrations),
+        ("scraped_articles_archive", archive_migrations),
+    ):
         cursor.execute(f"PRAGMA table_info({table})")
         existing = {row[1] for row in cursor.fetchall()}
         for col, coltype in migrations:

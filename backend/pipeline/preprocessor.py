@@ -180,6 +180,8 @@ def preprocess_single(article: dict) -> dict | None:
         "url": url,
         "source": article.get("source", "unknown"),
         "region": article.get("region"),
+        "category": article.get("category"),
+        "policy": article.get("policy", False),
         "original_text_length": len(article["text"]),
         "processed_text_length": len(prepended_text)
     }

@@ -207,12 +207,13 @@ def save_unclustered_articles(articles: list[dict]) -> int:
                 INSERT INTO articles
                 (url, title, source, text, credibility_score, credibility_label, cluster_id, scraped_at,
                  analysis_json, article_json, bias_label, dominant_emotion, subjectivity_ratio,
-                 analysis_status, analyzed_at, region)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 analysis_status, analyzed_at, region, category)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(url) DO UPDATE SET
                     scraped_at = excluded.scraped_at,
                     source = excluded.source,
-                    region = COALESCE(excluded.region, articles.region)
+                    region = COALESCE(excluded.region, articles.region),
+                    category = COALESCE(excluded.category, articles.category)
             """, (
                 article.get("url", ""),
                 article.get("title", ""),
@@ -230,6 +231,7 @@ def save_unclustered_articles(articles: list[dict]) -> int:
                 "done" if has_analysis else "pending",
                 now if has_analysis else None,
                 article.get("region"),
+                article.get("category"),
             ))
             saved += 1
         except Exception as e:
@@ -281,8 +283,8 @@ def save_clusters(clusters: list[dict]) -> int:
         cursor.execute("""
             INSERT OR REPLACE INTO clusters
             (id, summary, highlighted_summary, detailed_summary, sources, urls, titles, terms,
-             article_count, updated_at, region)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             article_count, updated_at, region, category, outlet_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             str(cluster.get("cluster_id", "")),
             cluster.get("summary", ""),
@@ -295,6 +297,8 @@ def save_clusters(clusters: list[dict]) -> int:
             cluster.get("article_count", 0),
             site_now().isoformat(),
             cluster.get("region"),
+            cluster.get("category"),
+            cluster.get("outlet_count"),
         ))
 
         for article in cluster.get("articles", []):
@@ -310,8 +314,8 @@ def save_clusters(clusters: list[dict]) -> int:
                 (url, title, source, text, credibility_score, credibility_label, cluster_id, scraped_at,
                  analysis_json, article_json, bias_label, dominant_emotion, subjectivity_ratio,
                  analysis_status, analyzed_at, summary, summary_model_version, summarized_at,
-                 region)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 region, category)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 article.get("url", ""),
                 article.get("title", ""),
@@ -332,6 +336,7 @@ def save_clusters(clusters: list[dict]) -> int:
                 "bart-news" if article_summary else None,
                 article.get("summarized_at") if article_summary else None,
                 article.get("region"),
+                article.get("category"),
             ))
         saved += 1
 
@@ -404,7 +409,7 @@ def get_cached_summaries() -> dict:
 
     cursor.execute("""
         SELECT id, summary, highlighted_summary, detailed_summary, sources, urls, titles, terms,
-               article_count, updated_at, region
+               article_count, updated_at, region, category, outlet_count
         FROM clusters
         WHERE date(updated_at) = ?
         ORDER BY article_count DESC, updated_at DESC
@@ -442,6 +447,8 @@ def get_cached_summaries() -> dict:
             "article_count": row["article_count"],
             "updated_at": row["updated_at"],
             "region": row["region"],
+            "category": row["category"],
+            "outlet_count": row["outlet_count"],
         }
         # Defensive repair: if pre-fix data is still in the live table, fix
         # the source/url pairing on the way out instead of trusting the JSON
@@ -528,7 +535,7 @@ def get_cluster(cluster_id: str) -> Optional[dict]:
 
     cursor.execute("""
         SELECT id, summary, highlighted_summary, detailed_summary, sources, urls, titles, terms,
-               article_count, updated_at, region
+               article_count, updated_at, region, category, outlet_count
         FROM clusters WHERE id = ? AND date(updated_at) = ?
     """, (cluster_id, today_str()))
     row = cursor.fetchone()
@@ -557,6 +564,8 @@ def get_cluster(cluster_id: str) -> Optional[dict]:
         "article_count": row["article_count"],
         "updated_at": row["updated_at"],
         "region": row["region"],
+        "category": row["category"],
+        "outlet_count": row["outlet_count"],
     }
     cluster = _repair_cluster_source_pairings(cluster)
 
@@ -600,8 +609,8 @@ def save_article_summary(article: dict) -> None:
     conn.execute("""
         INSERT INTO articles
         (url, title, source, text, credibility_score, credibility_label, scraped_at,
-         summary, summary_model_version, summarized_at, region)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'bart-news', ?, ?)
+         summary, summary_model_version, summarized_at, region, category)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'bart-news', ?, ?, ?)
         ON CONFLICT(url) DO UPDATE SET
             summary = excluded.summary,
             summary_model_version = excluded.summary_model_version,
@@ -617,6 +626,7 @@ def save_article_summary(article: dict) -> None:
         article["summary"],
         article.get("summarized_at"),
         article.get("region"),
+        article.get("category"),
     ))
     conn.commit()
     conn.close()
@@ -831,14 +841,17 @@ def archive_articles(articles: list[dict]) -> int:
         publish_date_str = publish_date.isoformat() if hasattr(publish_date, "isoformat") else (publish_date or "")
         cursor.execute("""
             INSERT INTO scraped_articles_archive
-            (url, title, source, text, authors, publish_date, scraped_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (url, title, source, text, authors, publish_date, scraped_at, region, category, policy)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(url) DO UPDATE SET
                 title = excluded.title,
                 source = excluded.source,
                 text = excluded.text,
                 authors = excluded.authors,
-                publish_date = excluded.publish_date
+                publish_date = excluded.publish_date,
+                region = excluded.region,
+                category = excluded.category,
+                policy = excluded.policy
         """, (
             url,
             a.get("title", ""),
@@ -846,7 +859,10 @@ def archive_articles(articles: list[dict]) -> int:
             a.get("text", ""),
             authors_str,
             publish_date_str,
-            now
+            now,
+            a.get("region"),
+            a.get("category"),
+            1 if a.get("policy") else 0,
         ))
         saved += 1
     conn.commit()
@@ -885,18 +901,48 @@ def get_archived_articles(urls: list[str]) -> dict:
     return out
 
 
-def prune_archive(days: int = 7) -> int:
-    conn = get_connection()
-    cursor = conn.cursor()
+def get_lookback_articles(hours: float, exclude_urls) -> list[dict]:
+    """Articles first downloaded in the last `hours` that aren't in
+    `exclude_urls` (today's feeds): earlier coverage, which the pipeline
+    uses only to count who else has reported a story."""
     # Same format and clock as the stored scraped_at, unlike SQLite's
     # datetime('now'), which is UTC and has no "T".
-    cutoff = (site_now() - timedelta(days=days)).isoformat()
+    cutoff = (site_now() - timedelta(hours=hours)).isoformat()
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT url, title, source, text, region, category, policy, scraped_at
+        FROM scraped_articles_archive WHERE scraped_at >= ?
+    """, (cutoff,)).fetchall()
+    conn.close()
+    exclude_urls = set(exclude_urls)
+    return [
+        {
+            "url": r["url"],
+            "title": r["title"],
+            "source": r["source"],
+            "text": r["text"],
+            "region": r["region"],
+            "category": r["category"],
+            "policy": bool(r["policy"]),
+            "scraped_at": r["scraped_at"],
+        }
+        for r in rows if r["url"] not in exclude_urls
+    ]
+
+
+def prune_archive(hours: float) -> int:
+    """Delete downloaded articles first seen more than `hours` ago. Political
+    and kept articles live on in the articles table; the rest (health, tech
+    and business articles that never became relevant) are gone for good."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cutoff = (site_now() - timedelta(hours=hours)).isoformat()
     cursor.execute("DELETE FROM scraped_articles_archive WHERE scraped_at < ?", (cutoff,))
     removed = cursor.rowcount
     conn.commit()
     conn.close()
     if removed:
-        logger.info(f"Pruned {removed} articles older than {days} days from archive")
+        logger.info(f"Pruned {removed} downloaded articles older than {hours} hours")
     return removed
 
 

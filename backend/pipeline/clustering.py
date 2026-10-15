@@ -47,6 +47,12 @@ def _article_texts(articles: list[dict]) -> list[str]:
     return [a.get("text", a.get("title", "")) for a in articles]
 
 
+# Embeddings kept between pipeline runs in this process, by model, URL and
+# text: an article stays in the feeds or the lookback window for many hourly
+# runs and only needs embedding once. Trimmed to each run's articles.
+_EMBEDDING_CACHE: dict = {}
+
+
 class ArticleClusterer:
     def __init__(
         self,
@@ -55,6 +61,7 @@ class ArticleClusterer:
         min_cluster_size: int = DEFAULT_MIN_CLUSTER_SIZE,
         device: Optional[str] = None
     ):
+        self.model_name = model_name
         self.similarity_threshold = similarity_threshold
         self.min_cluster_size = min_cluster_size
 
@@ -76,7 +83,19 @@ class ArticleClusterer:
             logger.error("Embedding model not available")
             return None
 
-        embeddings = self.model.encode(_article_texts(articles), show_progress_bar=True, convert_to_numpy=True)
+        import numpy as np
+
+        texts = _article_texts(articles)
+        keys = [(self.model_name, a.get("url") or "", hash(t)) for a, t in zip(articles, texts)]
+        missing = [i for i, k in enumerate(keys) if k not in _EMBEDDING_CACHE]
+        if missing:
+            logger.info(f"Embedding {len(missing)} articles ({len(keys) - len(missing)} already embedded)")
+            new = self.model.encode([texts[i] for i in missing], show_progress_bar=True, convert_to_numpy=True)
+            for i, vector in zip(missing, new):
+                _EMBEDDING_CACHE[keys[i]] = vector
+        embeddings = np.array([_EMBEDDING_CACHE[k] for k in keys])
+        for stale in set(_EMBEDDING_CACHE) - set(keys):
+            del _EMBEDDING_CACHE[stale]
         return embeddings
 
     def compute_similarity_matrix(self, embeddings, texts: Optional[list[str]] = None):
@@ -133,39 +152,55 @@ class ArticleClusterer:
         return list(clusters.values())
 
     def cluster(self, articles: list[dict]) -> dict[int, list[dict]]:
+        return self.cluster_with_prior(articles, [])[0]
+
+    def cluster_with_prior(self, articles: list[dict], prior: list[dict]) -> tuple[dict, dict]:
+        """Group `articles` into topics, clustering them together with
+        `prior` ones (earlier coverage, from the lookback window) so a story
+        is recognized across days. Returns ({cluster_id: [articles]},
+        {cluster_id: [prior articles on the same story]}).
+
+        Only `articles` make up topics: a group needs min_cluster_size of
+        them from at least 2 sources, else each becomes its own
+        singleton_N (with the group's prior articles listed under that id).
+        Prior articles only show who else has reported the story."""
         if not articles:
             logger.warning("No articles provided for clustering")
-            return {}
+            return {}, {}
 
-        logger.info(f"Clustering {len(articles)} articles")
+        everything = list(articles) + list(prior)
+        logger.info(f"Clustering {len(articles)} articles with {len(prior)} from the lookback window")
 
-        embeddings = self.embed_articles(articles)
+        embeddings = self.embed_articles(everything)
 
         if embeddings is None:
             logger.warning("Embedding failed - returning articles as single clusters")
-            return {i: [articles[i]] for i in range(len(articles))}
+            return {i: [articles[i]] for i in range(len(articles))}, {}
 
-        cluster_indices = self.build_clusters(articles, embeddings)
+        cluster_indices = self.build_clusters(everything, embeddings)
 
-        result = {}
+        result, prior_by_cluster = {}, {}
         singleton_count = 0
         for cluster_id, indices in enumerate(cluster_indices):
-            cluster_articles = [articles[i] for i in indices]
+            cluster_articles = [everything[i] for i in indices if i < len(articles)]
+            earlier = [everything[i] for i in indices if i >= len(articles)]
+            if not cluster_articles:
+                continue
             unique_sources = {a.get("source", "unknown") for a in cluster_articles}
             if len(cluster_articles) >= self.min_cluster_size and len(unique_sources) >= 2:
+                ids = [cluster_id]
                 result[cluster_id] = cluster_articles
             else:
-                for article in cluster_articles:
-                    result[f"singleton_{singleton_count}"] = [article]
-                    singleton_count += 1
+                ids = [f"singleton_{singleton_count + i}" for i in range(len(cluster_articles))]
+                singleton_count += len(cluster_articles)
+                for key, article in zip(ids, cluster_articles):
+                    result[key] = [article]
+            if earlier:
+                for key in ids:
+                    prior_by_cluster[key] = earlier
 
         logger.info(f"Created {len(result)} clusters from {len(articles)} articles")
-
-        if not result:
-            logger.warning("No clusters created - returning all as separate")
-            return {i: [articles[i]] for i in range(len(articles))}
-
-        return result
+        return result, prior_by_cluster
 
     def cluster_with_metadata(self, articles: list[dict]) -> dict:
         clusters = self.cluster(articles)

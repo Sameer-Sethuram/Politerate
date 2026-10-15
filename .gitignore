@@ -84,3 +84,8 @@ backend/models/*.bin
 
 # Dev scratch: pipeline test runners and their outputs
 outputs/
+
+
+#training files
+training/
+audit_set_with_gold_labels.csv
