@@ -2,7 +2,7 @@
 
 :root {
   /* Root size bumped from 16px to keep body copy and text-sm UI legible. */
-  --font-size: 18px;
+  --font-size: 16x;
   /* Domine comes in weights 400-700 and has no italic: heavier weights
      render at 700, and italics are slanted by the browser. */
   --font-display: 'Domine', Georgia, serif;
