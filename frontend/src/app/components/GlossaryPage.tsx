@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { Search, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
 import { Spinner, StateBox, PageContainer, SectionLabel } from "./shared";
+import { errorMessage, fetchJson } from "../api";
+import { safeUrl } from "../sanitize";
 
 interface ArticleLink {
   title?: string;
@@ -65,7 +67,7 @@ function TermCard({ term, index }: { term: GlossaryTerm; index: number }) {
                       {link.title ?? link.source}
                     </span>
                     <a
-                      href={link.url}
+                      href={safeUrl(link.url)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="shrink-0 text-sm font-semibold link"
@@ -95,15 +97,14 @@ export function GlossaryPage() {
   useEffect(() => {
     (async () => {
       try {
-        const [termsRes, catsRes] = await Promise.all([
-          fetch("/api/glossary"),
-          fetch("/api/glossary/categories"),
+        const [termsData, catsData] = await Promise.all([
+          fetchJson<{ terms?: GlossaryTerm[] }>("/api/glossary"),
+          fetchJson<{ categories?: string[] }>("/api/glossary/categories"),
         ]);
-        const [termsData, catsData] = await Promise.all([termsRes.json(), catsRes.json()]);
         setTerms(termsData.terms ?? []);
         setCategories(catsData.categories ?? []);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load glossary");
+        setError(errorMessage(e, "Failed to load glossary"));
       } finally {
         setLoading(false);
       }

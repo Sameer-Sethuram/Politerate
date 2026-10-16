@@ -3,6 +3,8 @@ import { Link, useSearchParams } from "react-router";
 import { AlertCircle, ChevronDown, ChevronUp, ExternalLink, Search, SlidersHorizontal, X } from "lucide-react";
 import { Spinner, StateBox, LeanBadge, CredBadge, PageContainer, SectionLabel, Region, siteToday } from "./shared";
 import { TAG_ORDER, TOPIC_TAGS, TagKey, TagSwatch, TopicTag, primaryTag } from "./topicTags";
+import { errorMessage, fetchJson } from "../api";
+import { safeUrl } from "../sanitize";
 
 interface Article {
   url: string;
@@ -346,7 +348,7 @@ function StoryCard({ story, threshold }: { story: Story; threshold: number }) {
           </Link>
         </h3>
         <a
-          href={lead.url}
+          href={safeUrl(lead.url)}
           target="_blank"
           rel="noopener noreferrer"
           className="shrink-0 text-muted-foreground hover:text-brand-accent transition-colors mt-1"
@@ -474,14 +476,14 @@ export function AllArticlesPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/all-articles");
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        const data = await fetchJson<{ articles?: Article[]; today?: string; credibility_threshold?: number }>(
+          "/api/all-articles",
+        );
         setArticles(data.articles ?? []);
         if (data.today) setToday(data.today);
         setThreshold(data.credibility_threshold ?? DEFAULT_THRESHOLD);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load");
+        setError(errorMessage(e, "Failed to load"));
       } finally {
         setLoading(false);
       }

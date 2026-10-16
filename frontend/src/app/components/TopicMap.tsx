@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import { ArrowRight, Maximize2, Minus, Plus } from "lucide-react";
 import { AXIS_DIRECTION, AXIS_GENRES, AxisGenre, LayoutNode, MapLayout, genreDirection, layoutTopics } from "./topicLayout";
-import { TopicCluster, outletCount, topicRelevance, topicTitle } from "./topicData";
+import { TopicCluster, listedOutlets, topicRelevance, topicTitle } from "./topicData";
 import {
   TAG_ORDER, TOPIC_TAGS, TagKey, TagSwatch, TopicTags, genreWeights, tagWeights, topicTags,
 } from "./topicTags";
@@ -15,8 +15,8 @@ const GRADIENT_MIN_SHARE = 0.08;
 // Titles inside circles, in screen pixels.
 // Sizes are where a title starts, once its circle first fits it; they grow
 // as you zoom in further (see layoutLabel).
-const labelFont = (px: number) => `600 ${px}px Alegreya, Georgia, serif`;
-const noteFont = (px: number) => `400 ${px}px Alegreya, Georgia, serif`;
+const labelFont = (px: number) => `600 ${px}px Domine, Georgia, serif`;
+const noteFont = (px: number) => `400 ${px}px Domine, Georgia, serif`;
 const LABEL_FONT_SIZE = 12;
 const LABEL_FONT = labelFont(LABEL_FONT_SIZE);
 const LABEL_LINE_HEIGHT = 14;
@@ -565,7 +565,7 @@ export function TopicMap({
                 data-topic={item.topic.cluster_id}
                 tabIndex={0}
                 role="link"
-                aria-label={`${item.title}. ${outletCount(item.topic)} outlets. Opens the topic.`}
+                aria-label={`${item.title}. ${listedOutlets(item.topic)} outlets. Opens the topic.`}
                 className="outline-none"
                 style={{
                   fill: "transparent",
@@ -699,7 +699,7 @@ function MapGuides({
   const ring = layout.politicsRadius * k;
   // Tag colors pulled toward the text color, so yellow reads on sepia.
   const labelStyle = (tag: TagKey) => ({
-    font: "700 13px Alegreya, Georgia, serif",
+    font: "700 13px Domine, Georgia, serif",
     letterSpacing: "0.14em",
     fill: `color-mix(in srgb, ${TOPIC_TAGS[tag].color} 70%, var(--foreground))`,
     stroke: "var(--map-bg)",

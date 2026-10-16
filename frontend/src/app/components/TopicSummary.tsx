@@ -1,4 +1,5 @@
 import { SectionLabel } from "./shared";
+import { safeUrl, sanitizeHtml } from "../sanitize";
 
 export interface TopicDetail {
   text: string;
@@ -41,7 +42,7 @@ const MARK_CLASSES = "";
 /** Glossary-highlighted HTML from the backend when present, else plain text. */
 function RichText({ html, text, className }: { html?: string; text: string; className: string }) {
   return html
-    ? <p className={className} dangerouslySetInnerHTML={{ __html: html }} />
+    ? <p className={className} dangerouslySetInnerHTML={{ __html: sanitizeHtml(html) }} />
     : <p className={className}>{text}</p>;
 }
 
@@ -61,7 +62,7 @@ export function TopicSummary({
     return (
       <div
         className={`text-lg text-foreground leading-relaxed ${MARK_CLASSES}`}
-        dangerouslySetInnerHTML={{ __html: fallbackHtml }}
+        dangerouslySetInnerHTML={{ __html: sanitizeHtml(fallbackHtml) }}
       />
     );
   }
@@ -96,9 +97,9 @@ export function TopicSummary({
                   />
                   <p className="mt-0.5 text-sm text-muted-foreground">
                     Reported by{" "}
-                    {d.url ? (
+                    {safeUrl(d.url) ? (
                       <a
-                        href={d.url}
+                        href={safeUrl(d.url)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="font-semibold link"

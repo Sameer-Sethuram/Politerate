@@ -9,6 +9,8 @@ import { DailyBrief, DailySummary } from "./DailyBrief";
 import { GenreWeights, TopicTags, topicTags } from "./topicTags";
 import { DefinedTerm, DetailedSummary, KeyTermChips, TopicSummary } from "./TopicSummary";
 import { ArticleBlock, ArticleEntry, ClusterArticle } from "./ArticleBreakdown";
+import { errorMessage, fetchJson } from "../api";
+import { sanitizeHtml } from "../sanitize";
 
 interface SnapshotMeta {
   date: string;
@@ -108,14 +110,12 @@ function ArchiveTopic({
     setLoading(true);
     (async () => {
       try {
-        const res = await fetch(
+        const data = await fetchJson<{ articles?: ArchivedArticle[] }>(
           `/api/archive/${date}/clusters/${encodeURIComponent(cluster.cluster_id)}`,
         );
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
         setArticles(data.articles ?? []);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load articles");
+        setError(errorMessage(e, "Failed to load articles"));
       } finally {
         setLoading(false);
       }
@@ -162,11 +162,12 @@ function ArchiveTopic({
           <div
             className="text-lg text-foreground leading-relaxed"
             dangerouslySetInnerHTML={{
-              __html:
+              __html: sanitizeHtml(
                 cluster.detailed_summary?.overview_html
                 || cluster.highlighted_summary
                 || cluster.summary
                 || "",
+              ),
             }}
           />
         )}
@@ -242,6 +243,7 @@ export function ArchivePage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [month, setMonth] = useState<Date | undefined>(undefined);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const latestDay = useRef<string | null>(null);
   const [openTopics, setOpenTopics] = useState<Set<string>>(new Set());
   const [loadingDates, setLoadingDates] = useState(true);
   const [loadingSnap, setLoadingSnap] = useState(false);
@@ -257,9 +259,7 @@ export function ArchivePage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/archive");
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        const data = await fetchJson<{ snapshots?: SnapshotMeta[] }>("/api/archive");
         const snaps: SnapshotMeta[] = data.snapshots ?? [];
         setDates(snaps);
         // Open the linked day if it's archived, else the latest (the API
@@ -271,7 +271,7 @@ export function ArchivePage() {
           loadSnapshot(snaps[0].date);
         }
       } catch (e) {
-        setDatesError(e instanceof Error ? e.message : "Failed to load archive");
+        setDatesError(errorMessage(e, "Failed to load archive"));
       } finally {
         setLoadingDates(false);
       }
@@ -287,14 +287,16 @@ export function ArchivePage() {
     setLoadingSnap(true);
     setError(null);
     setSnapshot(null);
+    // Clicking through days quickly: only the last day picked may show,
+    // whichever response arrives last.
+    latestDay.current = date;
     try {
-      const res = await fetch(`/api/archive/${date}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setSnapshot(await res.json());
+      const snap = await fetchJson<Snapshot>(`/api/archive/${date}`);
+      if (latestDay.current === date) setSnapshot(snap);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load snapshot");
+      if (latestDay.current === date) setError(errorMessage(e, "Failed to load snapshot"));
     } finally {
-      setLoadingSnap(false);
+      if (latestDay.current === date) setLoadingSnap(false);
     }
   }
 

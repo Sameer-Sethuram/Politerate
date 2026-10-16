@@ -24,7 +24,9 @@ STATIC_DIR = PROJECT_ROOT / "static"
 FRONTEND_DIST_DIR = PROJECT_ROOT / "frontend" / "dist"
 
 # SQLite cache. Kept at project root so existing DBs aren't orphaned.
-DB_PATH = PROJECT_ROOT / "politerate.db"
+# POLITERATE_DB_PATH points elsewhere, e.g. a copy for a load test or a
+# restored backup being checked.
+DB_PATH = Path(os.environ.get("POLITERATE_DB_PATH", PROJECT_ROOT / "politerate.db"))
 
 # Nightly database backups (scripts/backup_db.py). Outside the repo so
 # re-cloning or `git clean` can't delete them.
@@ -65,6 +67,29 @@ CORS_ORIGINS = os.environ.get(
 CACHE_MAX_AGE_HOURS = int(os.environ.get("POLITERATE_CACHE_HOURS", "1"))
 
 CREDIBILITY_THRESHOLD = float(os.environ.get("POLITERATE_CREDIBILITY_THRESHOLD", "0.6"))
+
+# ---------------------------------------------------------------------------
+# API protection (backend/api/limits.py)
+# ---------------------------------------------------------------------------
+# Unlocks the endpoints that change or wipe data (/api/refresh,
+# /api/snapshot), sent as the X-Admin-Token header. Unset = those endpoints
+# are off: anyone on the internet could otherwise delete every article.
+ADMIN_TOKEN = os.environ.get("POLITERATE_ADMIN_TOKEN", "")
+
+# How many reverse proxies (nginx, a load balancer) sit in front of
+# gunicorn. Rate limits count requests per visitor IP, and behind a proxy
+# every request comes from the proxy's IP unless X-Forwarded-For is read.
+# Leave 0 when gunicorn faces the internet directly, or visitors could fake
+# their IP to dodge the limits.
+TRUSTED_PROXIES = int(os.environ.get("POLITERATE_TRUSTED_PROXIES", "0"))
+
+# Largest request body accepted. The analyzer's 50,000-character limit is
+# at most ~300 KB of JSON, even when every character is escaped.
+MAX_REQUEST_BYTES = 512 * 1024
+
+# /api/health reports the site down when the pipeline hasn't refreshed in
+# this long: it runs hourly, so a few missed runs mean it keeps failing.
+HEALTH_MAX_REFRESH_HOURS = float(os.environ.get("POLITERATE_HEALTH_MAX_REFRESH_HOURS", "3"))
 
 # The site's clock, whatever the server's own time zone (DigitalOcean
 # droplets run on UTC, which made the day change at 8 p.m. Eastern). It

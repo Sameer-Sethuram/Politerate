@@ -9,11 +9,14 @@ import { ArchivePage } from "./components/ArchivePage";
 import { ClusterPage } from "./components/ClusterPage";
 import { LearnPage } from "./components/LearnPage";
 import { GlossaryPage } from "./components/GlossaryPage";
+import { ErrorPage } from "./components/ErrorPage";
 
 export const router = createBrowserRouter([
   {
     path: "/",
     Component: Layout,
+    // Crashes and unknown addresses, instead of a blank page.
+    ErrorBoundary: ErrorPage,
     children: [
       { index: true, Component: HomePage },
       { path: "topics", Component: TopicsPage },

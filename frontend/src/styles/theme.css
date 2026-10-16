@@ -1,12 +1,13 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Alegreya has a small x-height, so the root size is bumped from 16px
-     to keep body copy and text-sm UI legible. */
+  /* Root size bumped from 16px to keep body copy and text-sm UI legible. */
   --font-size: 18px;
-  --font-display: 'Alegreya', Georgia, serif;
-  --font-sans: 'Alegreya', Georgia, serif;
-  --font-data: 'Alegreya', Georgia, serif;
+  /* Domine comes in weights 400-700 and has no italic: heavier weights
+     render at 700, and italics are slanted by the browser. */
+  --font-display: 'Domine', Georgia, serif;
+  --font-sans: 'Domine', Georgia, serif;
+  --font-data: 'Domine', Georgia, serif;
 
   /* Light mode: neutral sepia. Dark mode (.dark, the default) is below. */
 
@@ -210,8 +211,8 @@
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-sans);
-    /* Alegreya defaults to old-style figures; lining reads better for
-       scores, dates, and counts. */
+    /* Lining figures read better than old-style ones for scores, dates,
+       and counts. */
     font-variant-numeric: lining-nums;
   }
 

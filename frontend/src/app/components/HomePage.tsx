@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { RefreshCw, AlertCircle, Map as MapIcon } from "lucide-react";
 import { Spinner, StateBox, AiBanner, PageContainer, formatRelativeDate, SITE_TIME_ZONE } from "./shared";
 import { DailyBrief, DailySummary, StatPill } from "./DailyBrief";
+import { errorMessage, fetchJson } from "../api";
 import { TAG_ORDER, TOPIC_TAGS, TagSwatch } from "./topicTags";
 
 function todayHeading(): string {
@@ -20,11 +21,9 @@ export function HomePage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/daily-summary");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setDaily(await res.json());
+      setDaily(await fetchJson<DailySummary>("/api/daily-summary"));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load news");
+      setError(errorMessage(e, "Failed to load news"));
     } finally {
       setLoading(false);
     }

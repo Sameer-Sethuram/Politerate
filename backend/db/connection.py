@@ -75,6 +75,7 @@ def init_db() -> None:
 
     _apply_column_migrations(cursor)
     _backfill_regions(cursor)
+    _backfill_authors(cursor)
 
     cursor.executescript(_ARTICLE_INDEXES_SQL)
 
@@ -98,6 +99,27 @@ def _backfill_regions(cursor) -> None:
         )
         logger.info(f"Tagged {len(rows)} articles stored before regions existed")
     cursor.execute("UPDATE clusters SET region = ? WHERE region IS NULL", (US,))
+
+
+def _backfill_authors(cursor) -> None:
+    """Bylines for articles stored before they were kept, from the download
+    cache's copy of each page's authors. The cache holds only the last day
+    and a half of downloads, so older articles stay without one."""
+    from backend.pipeline.preprocessor import clean_authors
+
+    rows = cursor.execute("""
+        SELECT a.url, a.source, s.authors FROM articles a
+        JOIN scraped_articles_archive s ON s.url = a.url
+        WHERE a.author IS NULL AND s.authors IS NOT NULL AND s.authors NOT IN ('', '[]')
+    """).fetchall()
+    updates = []
+    for url, source, authors in rows:
+        names = clean_authors(authors, source)
+        if names:
+            updates.append((", ".join(names), url))
+    if updates:
+        cursor.executemany("UPDATE articles SET author = ? WHERE url = ?", updates)
+        logger.info(f"Added bylines to {len(updates)} articles stored before bylines were kept")
 
 
 def _apply_column_migrations(cursor) -> None:

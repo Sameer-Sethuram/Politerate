@@ -18,9 +18,16 @@ Usage (from project root):
     python -m scripts.backup_db                          # nightly (cron)
     python -m scripts.backup_db --label before-deploy    # before risky changes
     python -m scripts.backup_db --dir /mnt/backups       # somewhere else
+    python -m scripts.backup_db --verify                 # test-restore the newest backup
+    python -m scripts.backup_db --verify path/to/x.db    # test-restore that one
 
 The backup folder defaults to ~/politerate_backups (POLITERATE_BACKUP_DIR
 overrides it). Run it as the user that owns politerate.db.
+
+--verify restores a backup into a scratch folder the way the steps below
+do, starts the site's database code on the copy (init_db, then the reads
+behind the Daily Brief and the Archive) and prints what it found. It never
+touches politerate.db or the service. Exits 1 if the backup is unusable.
 
 Restore: stop the service, move politerate.db (and any politerate.db-wal /
 politerate.db-shm next to it) out of the way, copy a backup to
@@ -28,17 +35,20 @@ politerate.db, start the service.
 """
 
 import argparse
+import json
 import logging
 import os
 import re
 import shutil
 import sqlite3
+import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from backend.config import BACKUP_DIR, DB_PATH, site_now
+from backend.config import BACKUP_DIR, DB_PATH, PROJECT_ROOT, site_now
 from backend.db.connection import BUSY_TIMEOUT_SECONDS
 
 logging.basicConfig(
@@ -137,15 +147,109 @@ def rotate(backup_dir: Path, now: datetime) -> list[Path]:
     return deleted
 
 
+REQUIRED_TABLES = ("articles", "clusters", "metadata", "seen_urls", "scraped_articles_archive", "daily_snapshots")
+
+# Run in a separate Python process with POLITERATE_DB_PATH pointing at the
+# restored copy, so the app's own database code opens it exactly as the
+# service would after a restore (WAL mode, column migrations, indexes).
+_RESTORED_APP_CHECK = """
+import json
+from backend.db.connection import init_db
+from backend.db import cache
+init_db()
+dates = cache.list_snapshot_dates()
+newest = cache.get_archive_day(dates[0]["date"]) if dates else None
+print(json.dumps({
+    "today_topics": len(cache.get_cached_summaries()["clusters"]),
+    "archive_days": len(dates),
+    "newest_archive_day": dates[0]["date"] if dates else None,
+    "newest_archive_topics": len(newest["clusters"]) if newest else 0,
+    "last_refresh": cache.get_last_refresh(),
+}))
+"""
+
+
+def newest_backup(backup_dir: Path):
+    backups = sorted((taken, path) for path in backup_dir.glob("politerate-*.db") if (taken := backup_time(path)))
+    return backups[-1][1] if backups else None
+
+
+def verify(backup_path: Path) -> bool:
+    """Test-restore `backup_path` into a scratch folder next to it and check
+    the copy is complete and the site can open it. Logs what it finds;
+    True if the backup is usable."""
+    if not backup_path.is_file():
+        logger.error(f"No backup at {backup_path}")
+        return False
+    # Next to the backups, whose disk backup() keeps space free on.
+    with tempfile.TemporaryDirectory(dir=backup_path.parent, prefix=".restore-test-") as scratch:
+        restored = Path(scratch) / "politerate.db"
+        shutil.copy2(backup_path, restored)
+
+        conn = sqlite3.connect(str(restored))
+        try:
+            integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+            tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+            counts = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in REQUIRED_TABLES if t in tables}
+        finally:
+            conn.close()
+
+        problems = []
+        if integrity != "ok":
+            problems.append(f"integrity check failed: {integrity}")
+        missing = [t for t in REQUIRED_TABLES if t not in tables]
+        if missing:
+            problems.append(f"missing tables: {', '.join(missing)}")
+        if counts.get("articles", 0) == 0:
+            problems.append("no articles")
+
+        app_check = None
+        if not problems:
+            result = subprocess.run(
+                [sys.executable, "-c", _RESTORED_APP_CHECK],
+                cwd=PROJECT_ROOT, env={**os.environ, "POLITERATE_DB_PATH": str(restored)},
+                capture_output=True, text=True, timeout=600,
+            )
+            if result.returncode != 0:
+                problems.append(f"the site's database code failed on the restored copy:\n{result.stderr.strip()[-2000:]}")
+            else:
+                app_check = json.loads(result.stdout.strip().splitlines()[-1])
+
+    logger.info(f"Restore test of {backup_path.name} ({backup_path.stat().st_size / 1024**2:.1f} MB)")
+    logger.info("  rows: " + ", ".join(f"{t} {n:,}" for t, n in counts.items()))
+    if app_check:
+        logger.info(
+            f"  the site opened it: {app_check['archive_days']} archived days (newest "
+            f"{app_check['newest_archive_day']}, {app_check['newest_archive_topics']} topics), "
+            f"last pipeline run {app_check['last_refresh']}, {app_check['today_topics']} topics dated today"
+        )
+    for problem in problems:
+        logger.error(f"  {problem}")
+    if problems:
+        logger.error("Restore test FAILED: don't rely on this backup")
+        return False
+    logger.info("Restore test passed: this backup can be restored")
+    return True
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Back up the Politerate database and delete old backups.")
     parser.add_argument("--dir", type=Path, default=BACKUP_DIR,
                         help=f"backup folder (default: {BACKUP_DIR})")
     parser.add_argument("--label", default="",
                         help="added to the file name, e.g. before-deploy (letters, digits, - and _)")
+    parser.add_argument("--verify", nargs="?", const="newest", metavar="BACKUP",
+                        help="test-restore a backup instead of making one (default: the newest in --dir)")
     args = parser.parse_args(argv)
     if not _LABEL.fullmatch(args.label):
         parser.error("--label may only contain letters, digits, - and _")
+
+    if args.verify:
+        path = newest_backup(args.dir) if args.verify == "newest" else Path(args.verify)
+        if path is None:
+            logger.error(f"No backups in {args.dir} to test")
+            return 1
+        return 0 if verify(path) else 1
 
     started = time.time()
     try:

@@ -2,14 +2,17 @@ import { useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router";
 import { ExternalLink, ArrowLeft, AlertCircle } from "lucide-react";
 import {
-  Spinner, StateBox, LeanBadge, CredBadge, AnnotationLegend, AnnotatedText,
+  Spinner, StateBox, LeanBadge, CredBadge, AnnotationLegend, ArticleText, Byline,
   PageContainer, Chunk, Region,
 } from "./shared";
 import { TopicTag, primaryTag } from "./topicTags";
+import { errorMessage, fetchJson } from "../api";
+import { safeUrl } from "../sanitize";
 
 interface ArticleData {
   title?: string;
   source?: string;
+  author?: string | null;
   region?: Region | null;
   category?: string | null;
   bias_label?: string;
@@ -37,11 +40,9 @@ export function ArticleDetailPage() {
     }
     (async () => {
       try {
-        const res = await fetch(`/api/article/analysis?url=${encodeURIComponent(url)}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        setData(await res.json());
+        setData(await fetchJson<ArticleData>(`/api/article/analysis?url=${encodeURIComponent(url)}`));
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load article");
+        setError(errorMessage(e, "Failed to load article"));
       } finally {
         setLoading(false);
       }
@@ -98,6 +99,7 @@ export function ArticleDetailPage() {
             >
               {data.title ?? "Untitled"}
             </h1>
+            <Byline author={data.author} className="-mt-2 mb-4" />
 
             <div className="flex flex-wrap items-center gap-2 text-base">
               {data.source && (
@@ -108,9 +110,9 @@ export function ArticleDetailPage() {
                   <LeanBadge lean={data.bias_label ?? data.credibility_label ?? ""} />
                 )}
               {data.credibility_score != null && <CredBadge score={data.credibility_score} />}
-              {url && (
+              {safeUrl(url) && (
                 <a
-                  href={url}
+                  href={safeUrl(url)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-brand-accent border border-border hover:border-[var(--accent)] rounded px-3 py-1.5 transition-colors ml-auto"
@@ -137,16 +139,10 @@ export function ArticleDetailPage() {
                   </button>
                 </div>
 
-                {showAnnotated ? (
-                  <AnnotatedText chunks={data.chunks!} />
-                ) : (
-                  <p className="text-lg leading-relaxed text-foreground whitespace-pre-wrap">
-                    {data.chunks!.map(c => c.text).join(" ")}
-                  </p>
-                )}
+                <ArticleText text={data.text} chunks={data.chunks} annotate={showAnnotated} title={data.title} />
               </>
             ) : data.text ? (
-              <p className="text-lg leading-relaxed text-foreground whitespace-pre-wrap">{data.text}</p>
+              <ArticleText text={data.text} title={data.title} />
             ) : (
               <p className="text-base text-muted-foreground italic">
                 No content available for this article.

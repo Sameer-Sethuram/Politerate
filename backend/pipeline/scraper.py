@@ -6,6 +6,7 @@ full article content from each link. It compiles the results into a dictionary
 mapping URLs to extracted article data.
 """
 
+import json
 from urllib.parse import urlparse
 
 import requests
@@ -47,6 +48,47 @@ def fetch(url):
         return None
 
 # ------------------------------------------------------------
+# Bylines
+# ------------------------------------------------------------
+
+def _is_article_type(node):
+    kinds = node.get("@type") or []
+    kinds = kinds if isinstance(kinds, list) else [kinds]
+    return any("Article" in str(k) or "Posting" in str(k) for k in kinds)
+
+
+def authors_from_metadata(html):
+    """The article's authors as its page declares them for search engines
+    (JSON-LD "author" on the NewsArticle), or [] if it doesn't. More
+    reliable than newspaper3k's guesses, which pick up job titles and bio
+    sentences, and miss Fox, the Post, UPI, The Hill and The Independent."""
+    if not html:
+        return []
+    soup = BeautifulSoup(html, "lxml")
+    found, fallback = [], []
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            stack = [json.loads(script.string or "")]
+        except ValueError:
+            continue
+        while stack:
+            node = stack.pop(0)
+            if isinstance(node, list):
+                stack.extend(node)
+            elif isinstance(node, dict):
+                if "author" in node:
+                    authors = node["author"] if isinstance(node["author"], list) else [node["author"]]
+                    names = [a.get("name") if isinstance(a, dict) else a for a in authors]
+                    # Only the article's own: pages also describe videos
+                    # and related stories, each with its author.
+                    (found if _is_article_type(node) else fallback).extend(
+                        n for n in names if isinstance(n, str) and n.strip()
+                    )
+                stack.extend(v for v in node.values() if isinstance(v, (dict, list)))
+    names = found or fallback
+    return list(dict.fromkeys(" ".join(n.split()) for n in names))
+
+# ------------------------------------------------------------
 # Article extraction logic
 # ------------------------------------------------------------
 
@@ -67,7 +109,7 @@ def extract_article(url):
         return {
             "title": article.title,
             "text": article.text,
-            "authors": article.authors,
+            "authors": authors_from_metadata(article.html) or article.authors,
             "publish_date": article.publish_date,
             "url": url
         }
@@ -87,7 +129,7 @@ def extract_article(url):
         return {
             "title": doc.title(),
             "text": text,
-            "authors": [],
+            "authors": authors_from_metadata(html),
             "publish_date": None,
             "url": url
         }

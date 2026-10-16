@@ -41,8 +41,16 @@ export function topicHref(id: string): string {
   return `/cluster/${encodeURIComponent(id)}`;
 }
 
+/** Outlets that reported a topic, for ranking: earlier coverage the topic
+ *  doesn't contain counts too (summarizer.cluster_outlets). */
 export function outletCount(t: TopicCluster): number {
-  return t.outlet_count || new Set(t.sources ?? []).size;
+  return t.outlet_count || listedOutlets(t);
+}
+
+/** Outlets among the topic's own articles: the count to show, since it
+ *  matches the sources the topic lists. */
+export function listedOutlets(t: TopicCluster): number {
+  return new Set(t.sources ?? []).size;
 }
 
 // Mirrors summarizer.BRIEF_WEIGHTS, for topics served without `relevance`.

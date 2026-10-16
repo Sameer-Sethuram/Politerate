@@ -5,6 +5,7 @@ import {
   Spinner, StateBox, AiBanner, SourceBadge, SectionLabel, PageContainer, Region,
 } from "./shared";
 import { ArticleBlock, ArticleEntry, AnalysisStatus, ClusterArticle } from "./ArticleBreakdown";
+import { ApiError, errorMessage, fetchJson } from "../api";
 import { DefinedTerm, DetailedSummary, KeyTermChips, TopicSummary } from "./TopicSummary";
 import { GenreWeights, TopicTags, topicTags } from "./topicTags";
 
@@ -52,12 +53,13 @@ export function ClusterPage() {
     // /api/summaries/<id> (unlike the /api/summaries list) includes `articles`.
     (async () => {
       try {
-        const res = await fetch(`/api/summaries/${id}`);
-        if (res.status === 404) throw new Error("Cluster not found in current snapshot.");
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        setCluster(await res.json());
+        setCluster(await fetchJson<ClusterData>(`/api/summaries/${id}`));
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load cluster");
+        setError(
+          e instanceof ApiError && e.status === 404
+            ? "Cluster not found in current snapshot."
+            : errorMessage(e, "Failed to load cluster"),
+        );
       } finally {
         setLoading(false);
       }
@@ -66,18 +68,13 @@ export function ClusterPage() {
     // Analysis is slow and optional - load in parallel without blocking the page.
     (async () => {
       try {
-        const res = await fetch(`/api/cluster/${id}/analysis`);
-        if (!res.ok) {
-          const body = await res.json().catch(() => null);
-          throw new Error(body?.error ?? `HTTP ${res.status}`);
-        }
-        const data = await res.json();
+        const data = await fetchJson<{ articles?: ArticleEntry[] }>(`/api/cluster/${id}/analysis`);
         const byUrl: Record<string, ArticleEntry> = {};
         for (const entry of data.articles ?? []) byUrl[entry.url] = entry;
         setAnalysisEntries(byUrl);
         setAnalysisStatus("done");
       } catch (e) {
-        setAnalysisError(e instanceof Error ? e.message : "Unknown error");
+        setAnalysisError(errorMessage(e, "Unknown error"));
         setAnalysisStatus("error");
       }
     })();

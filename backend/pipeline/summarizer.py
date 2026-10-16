@@ -527,9 +527,17 @@ def gate_genre_topics(clusters: dict, prior_by_cluster: Optional[dict] = None) -
 
 
 def cluster_outlets(cluster: dict) -> int:
-    """Outlets that reported a saved topic. Topics saved before outlet
-    counts were stored list each outlet once in `sources`."""
+    """Outlets that reported a saved topic, for ranking: earlier coverage in
+    the lookback window counts too. Topics saved before outlet counts were
+    stored list each outlet once in `sources`."""
     return cluster.get("outlet_count") or len(set(cluster.get("sources") or []))
+
+
+def listed_outlets(cluster: dict) -> int:
+    """Outlets among the topic's own articles: what opening it shows. Shown
+    as a card's outlet count, unlike cluster_outlets, which also counts
+    earlier coverage the topic doesn't contain."""
+    return len(set(cluster.get("sources") or []))
 
 
 def is_genre_topic(cluster: dict) -> bool:
@@ -1065,9 +1073,10 @@ class PoliteratePipeline:
                 "bullets": [self.highlighter.highlight(b) for b in bullets],
                 "article_count": c.get("article_count", 0),
                 "region": cluster_region(c),
-                # For sizing topics: outlets reporting the story, and its
-                # weighted relevance (brief_relevance), highest first.
-                "outlet_count": cluster_outlets(c),
+                # The outlets the card's topic contains (so the count matches
+                # what opening it lists), and for sizing topics, its weighted
+                # relevance (brief_relevance), highest first.
+                "outlet_count": listed_outlets(c),
                 "category": c.get("category") or POLITICS,
                 "relevance": brief_relevance(c),
                 # For tagging policy topics with their genre too; missing on

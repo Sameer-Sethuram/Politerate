@@ -131,6 +131,12 @@ def _stored_text(article: dict) -> str:
     return article.get("full_text") or article.get("text", "")
 
 
+def _stored_author(article: dict) -> Optional[str]:
+    """The article's bylines as one string ("Jane Roe, John Doe"), from the
+    preprocessor's cleaned `authors`; None when it has none."""
+    return ", ".join(article.get("authors") or []) or None
+
+
 def save_articles(articles: list[dict]) -> int:
     if not articles:
         return 0
@@ -216,11 +222,12 @@ def save_unclustered_articles(articles: list[dict]) -> int:
                 INSERT INTO articles
                 (url, title, source, text, credibility_score, credibility_label, cluster_id, scraped_at,
                  analysis_json, article_json, bias_label, dominant_emotion, subjectivity_ratio,
-                 analysis_status, analyzed_at, region, category)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 analysis_status, analyzed_at, region, category, author)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(url) DO UPDATE SET
                     scraped_at = excluded.scraped_at,
                     source = excluded.source,
+                    author = COALESCE(excluded.author, articles.author),
                     region = COALESCE(excluded.region, articles.region),
                     category = COALESCE(excluded.category, articles.category),
                     text = CASE WHEN length(excluded.text) > length(COALESCE(articles.text, ''))
@@ -258,6 +265,7 @@ def save_unclustered_articles(articles: list[dict]) -> int:
                 now if has_analysis else None,
                 article.get("region"),
                 article.get("category"),
+                _stored_author(article),
             ))
             saved += 1
         except Exception as e:
@@ -341,8 +349,8 @@ def save_clusters(clusters: list[dict]) -> int:
                 (url, title, source, text, credibility_score, credibility_label, cluster_id, scraped_at,
                  analysis_json, article_json, bias_label, dominant_emotion, subjectivity_ratio,
                  analysis_status, analyzed_at, summary, summary_model_version, summarized_at,
-                 region, category)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 region, category, author)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 article.get("url", ""),
                 article.get("title", ""),
@@ -364,6 +372,7 @@ def save_clusters(clusters: list[dict]) -> int:
                 article.get("summarized_at") if article_summary else None,
                 article.get("region"),
                 article.get("category"),
+                _stored_author(article),
             ))
         saved += 1
 
@@ -404,20 +413,26 @@ def get_last_refresh() -> Optional[str]:
     return row["value"] if row else None
 
 
-def is_stale() -> bool:
+def refresh_age_hours() -> Optional[float]:
+    """Hours since the pipeline last finished a run; None if it never has
+    (or the stored time is unusable)."""
     last_refresh = get_last_refresh()
     if not last_refresh:
-        return True
+        return None
 
     try:
         last_time = datetime.fromisoformat(last_refresh)
     except (ValueError, TypeError):
-        return True
+        return None
     if last_time.tzinfo is None:
         # Written on the server's clock before refresh times carried a zone.
-        return True
-    age_hours = (datetime.now(TIMEZONE) - last_time).total_seconds() / 3600
-    return age_hours >= CACHE_MAX_AGE_HOURS
+        return None
+    return (datetime.now(TIMEZONE) - last_time).total_seconds() / 3600
+
+
+def is_stale() -> bool:
+    age_hours = refresh_age_hours()
+    return age_hours is None or age_hours >= CACHE_MAX_AGE_HOURS
 
 
 def today_str() -> str:
@@ -599,7 +614,7 @@ def get_cluster(cluster_id: str) -> Optional[dict]:
     cluster = _repair_cluster_source_pairings(cluster)
 
     cursor.execute("""
-        SELECT url, title, source, text, credibility_score, credibility_label,
+        SELECT url, title, source, author, text, credibility_score, credibility_label,
                bias_label, dominant_emotion, subjectivity_ratio,
                analysis_json, article_json, analysis_status, summary
         FROM articles WHERE cluster_id = ?
@@ -610,6 +625,7 @@ def get_cluster(cluster_id: str) -> Optional[dict]:
             "url": article_row["url"],
             "title": article_row["title"],
             "source": article_row["source"],
+            "author": article_row["author"],
             "text": article_row["text"],
             "summary": article_row["summary"],
             "credibility_score": article_row["credibility_score"],
@@ -638,12 +654,13 @@ def save_article_summary(article: dict) -> None:
     conn.execute("""
         INSERT INTO articles
         (url, title, source, text, credibility_score, credibility_label, scraped_at,
-         summary, summary_model_version, summarized_at, region, category)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'bart-news', ?, ?, ?)
+         summary, summary_model_version, summarized_at, region, category, author)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'bart-news', ?, ?, ?, ?)
         ON CONFLICT(url) DO UPDATE SET
             summary = excluded.summary,
             summary_model_version = excluded.summary_model_version,
-            summarized_at = excluded.summarized_at
+            summarized_at = excluded.summarized_at,
+            author = COALESCE(excluded.author, articles.author)
     """, (
         article.get("url", ""),
         article.get("title", ""),
@@ -656,6 +673,7 @@ def save_article_summary(article: dict) -> None:
         article.get("summarized_at"),
         article.get("region"),
         article.get("category"),
+        _stored_author(article),
     ))
     conn.commit()
     conn.close()
@@ -711,8 +729,9 @@ def get_cached_analyses(urls: list[str]) -> dict[str, dict]:
 
 
 def get_articles_with_analysis(urls: list[str]) -> dict[str, dict]:
-    """Return {url: article} with summary and cached DeBERTa analysis, in the
-    shape the cluster breakdown UI expects."""
+    """Return {url: article} with summary, text (shown in paragraphs under
+    the analysis) and cached DeBERTa analysis, in the shape the cluster
+    breakdown UI expects."""
     if not urls:
         return {}
     conn = get_connection()
@@ -722,7 +741,7 @@ def get_articles_with_analysis(urls: list[str]) -> dict[str, dict]:
         batch = urls[start:start + 500]
         placeholders = ",".join("?" * len(batch))
         cursor.execute(
-            f"""SELECT url, title, source, summary, credibility_score, credibility_label,
+            f"""SELECT url, title, source, author, text, summary, credibility_score, credibility_label,
                        bias_label, analysis_json, article_json, analysis_status, region
                 FROM articles WHERE url IN ({placeholders})""",
             batch,
@@ -735,6 +754,8 @@ def get_articles_with_analysis(urls: list[str]) -> dict[str, dict]:
                 "url": row["url"],
                 "title": row["title"],
                 "source": row["source"],
+                "author": row["author"],
+                "text": row["text"],
                 "summary": row["summary"],
                 "credibility_score": row["credibility_score"],
                 "credibility_label": row["credibility_label"],
@@ -844,11 +865,10 @@ def mark_urls_seen(urls: list[str]) -> None:
     conn = get_connection()
     cursor = conn.cursor()
     now = site_now().isoformat()
-    for url in urls:
-        cursor.execute("""
-            INSERT INTO seen_urls (url, first_seen, last_seen) VALUES (?, ?, ?)
-            ON CONFLICT(url) DO UPDATE SET last_seen = excluded.last_seen
-        """, (url, now, now))
+    cursor.executemany("""
+        INSERT INTO seen_urls (url, first_seen, last_seen) VALUES (?, ?, ?)
+        ON CONFLICT(url) DO UPDATE SET last_seen = excluded.last_seen
+    """, [(url, now, now) for url in urls])
     conn.commit()
     conn.close()
 

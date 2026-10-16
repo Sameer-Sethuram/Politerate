@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { ArrowRight } from "lucide-react";
 import { REGIONS, Region, RegionIcon, SourceBadge, SectionLabel } from "./shared";
 import { GenreWeights, TopicTags, primaryTag, tagStyle, topicTags } from "./topicTags";
+import { sanitizeHtml } from "../sanitize";
 
 export interface BriefSection {
   cluster_id: string;
@@ -164,7 +165,7 @@ function BriefTile({
         {section.bullets.slice(0, t.bullets).map((b, i) => (
           <li key={i} className="flex gap-2">
             <span aria-hidden="true" className="mt-[0.5em] h-1.5 w-1.5 rounded-full shrink-0" style={{ background: "var(--tag)" }} />
-            <span className="line-clamp-2" dangerouslySetInnerHTML={{ __html: b }} />
+            <span className="line-clamp-2" dangerouslySetInnerHTML={{ __html: sanitizeHtml(b) }} />
           </li>
         ))}
       </ul>

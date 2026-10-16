@@ -4,7 +4,9 @@ import { AlertCircle, List, Map as MapIcon, RefreshCw } from "lucide-react";
 import { AiBanner, SectionLabel, SourceBadge, Spinner, StateBox, formatRelativeDate } from "./shared";
 import { KeyTermChips } from "./TopicSummary";
 import { TopicMap } from "./TopicMap";
-import { SummariesData, TopicCluster, outletCount, topicHref, topicRelevance, topicTitle } from "./topicData";
+import { errorMessage, fetchJson } from "../api";
+import { sanitizeHtml } from "../sanitize";
+import { SummariesData, TopicCluster, listedOutlets, topicHref, topicRelevance, topicTitle } from "./topicData";
 import { TAG_ORDER, TOPIC_TAGS, TagKey, TagSwatch, TopicTags, primaryTag, tagStyle, topicTags } from "./topicTags";
 
 type View = "map" | "list";
@@ -54,7 +56,7 @@ function ViewToggle({ value, onChange }: { value: View; onChange: (v: View) => v
 
 function TopicCard({ topic }: { topic: TopicCluster }) {
   const href = topicHref(topic.cluster_id);
-  const outlets = outletCount(topic);
+  const outlets = listedOutlets(topic);
   return (
     <article
       className="relative flex flex-col overflow-hidden rounded-lg border border-border bg-card hover:border-border-strong transition-colors"
@@ -83,7 +85,7 @@ function TopicCard({ topic }: { topic: TopicCluster }) {
 
       <div
         className="px-5 pb-4 text-base text-foreground leading-relaxed flex-1"
-        dangerouslySetInnerHTML={{ __html: topic.highlighted_summary || topic.summary }}
+        dangerouslySetInnerHTML={{ __html: sanitizeHtml(topic.highlighted_summary || topic.summary) }}
       />
 
       <div className="px-5 pb-4 pt-3 border-t border-border space-y-2">
@@ -210,11 +212,9 @@ export function TopicsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/summaries");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setData(await res.json());
+      setData(await fetchJson<SummariesData>("/api/summaries"));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load topics");
+      setError(errorMessage(e, "Failed to load topics"));
     } finally {
       setLoading(false);
     }

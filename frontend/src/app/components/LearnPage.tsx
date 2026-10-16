@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router";
 import { Flame, AlertCircle } from "lucide-react";
 import { Spinner, StateBox, PageContainer, SectionLabel, siteToday } from "./shared";
+import { errorMessage, fetchJson } from "../api";
+import { safeUrl } from "../sanitize";
 
 interface ArticleSnippet {
   snippet: string;
@@ -75,11 +77,19 @@ function bumpStreak(): number {
   return count;
 }
 
-function TermOfDayCard({ term, loading }: { term: TermOfDay | null; loading: boolean }) {
+function TermOfDayCard({ term, loading, error }: { term: TermOfDay | null; loading: boolean; error: string | null }) {
   if (loading) {
     return (
       <div className="bg-card border border-border rounded p-6 shadow-sm flex justify-center py-12">
         <Spinner />
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="bg-card border border-border rounded p-6 shadow-sm">
+        <SectionLabel>Term of the Day</SectionLabel>
+        <p className="text-base text-destructive">Couldn't load today's term: {error}</p>
       </div>
     );
   }
@@ -135,7 +145,7 @@ function TermOfDayCard({ term, loading }: { term: TermOfDay | null; loading: boo
           <footer className="mt-1 text-sm text-muted-foreground not-italic">
             —{" "}
             <a
-              href={s.url}
+              href={safeUrl(s.url)}
               target="_blank"
               rel="noopener"
               className="link"
@@ -153,16 +163,17 @@ function TermOfDayCard({ term, loading }: { term: TermOfDay | null; loading: boo
 function QuizCard({ streak, onStreak }: { streak: number; onStreak: (n: number) => void }) {
   const [state, setState] = useState<QuizState | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   async function startQuiz() {
     setLoading(true);
+    setError(null);
     setState({ questions: [], index: 0, score: 0, answers: [] });
     try {
-      const res = await fetch("/api/quiz?count=5");
-      const data = await res.json();
+      const data = await fetchJson<{ questions?: QuizState["questions"] }>("/api/quiz?count=5");
       setState({ questions: data.questions ?? [], index: 0, score: 0, answers: [] });
-    } catch {
-      setState({ questions: [], index: 0, score: 0, answers: [] });
+    } catch (e) {
+      setError(errorMessage(e, "Failed to load the quiz"));
     } finally {
       setLoading(false);
     }
@@ -201,6 +212,21 @@ function QuizCard({ streak, onStreak }: { streak: number; onStreak: (n: number) 
     return (
       <div className="bg-card border border-border rounded p-6 shadow-sm flex justify-center py-12">
         <Spinner />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-card border border-border rounded p-6 shadow-sm space-y-3">
+        <SectionLabel>Quick Quiz</SectionLabel>
+        <p className="text-base text-destructive">Couldn't load the quiz: {error}</p>
+        <button
+          onClick={startQuiz}
+          className="px-5 py-2 bg-secondary text-secondary-foreground rounded text-base font-medium hover:bg-muted transition-colors"
+        >
+          Try again
+        </button>
       </div>
     );
   }
@@ -328,7 +354,7 @@ function QuizCard({ streak, onStreak }: { streak: number; onStreak: (n: number) 
           "{q.article_snippet.snippet}"
           <footer className="text-sm text-muted-foreground not-italic mt-1">
             —{" "}
-            <a href={q.article_snippet.url} target="_blank" rel="noopener" className="link">
+            <a href={safeUrl(q.article_snippet.url)} target="_blank" rel="noopener" className="link">
               {q.article_snippet.source}
             </a>
           </footer>
@@ -388,15 +414,15 @@ function QuizCard({ streak, onStreak }: { streak: number; onStreak: (n: number) 
 export function LearnPage() {
   const [term, setTerm] = useState<TermOfDay | null>(null);
   const [termLoading, setTermLoading] = useState(true);
+  const [termError, setTermError] = useState<string | null>(null);
   const [streak, setStreak] = useState(loadStreak());
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/term-of-day");
-        setTerm(await res.json());
-      } catch {
-        setTerm(null);
+        setTerm(await fetchJson<TermOfDay>("/api/term-of-day"));
+      } catch (e) {
+        setTermError(errorMessage(e, "Failed to load"));
       } finally {
         setTermLoading(false);
       }
@@ -430,7 +456,7 @@ export function LearnPage() {
       </div>
 
       <div className="space-y-6">
-        <TermOfDayCard term={term} loading={termLoading} />
+        <TermOfDayCard term={term} loading={termLoading} error={termError} />
         <QuizCard streak={streak} onStreak={setStreak} />
       </div>
     </PageContainer>

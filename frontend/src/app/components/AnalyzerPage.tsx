@@ -1,10 +1,15 @@
 import React, { useState, useRef } from "react";
 import { AlertCircle } from "lucide-react";
+import { ANALYZE_TIMEOUT_MS, errorMessage, fetchJson } from "../api";
 import {
-  Spinner, StateBox, AnnotationLegend, AnnotatedText, BiasBar,
+  Spinner, StateBox, AnnotationLegend, ArticleText, BiasBar,
   EmotionBadge, SubjectivityBar, SectionLabel, PageContainer,
   Chunk, formatTechnique, chunkCategory, ANNOT_HUES,
 } from "./shared";
+
+// Same limits as the server (backend/api/routes/analyze.py).
+const MIN_CHARS = 50;
+const MAX_CHARS = 50_000;
 
 interface ArticleAnalysis {
   dominant_bias: string;
@@ -123,35 +128,43 @@ export function AnalyzerPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  // The text `result` is for, shown in its paragraphs: the box may have
+  // been edited since.
+  const [analyzedText, setAnalyzedText] = useState("");
   const [showAnnotated, setShowAnnotated] = useState(true);
   const [showChunks, setShowChunks] = useState(false);
 
   const charCount = text.length;
-  const tooShort = charCount > 0 && charCount < 50;
+  const tooShort = charCount > 0 && charCount < MIN_CHARS;
+  const tooLong = charCount > MAX_CHARS;
 
   async function analyze() {
-    if (charCount < 50) {
-      setError("Text must be at least 50 characters.");
+    // A second click or Enter while one analysis runs would start another.
+    if (loading) return;
+    if (charCount < MIN_CHARS) {
+      setError(`Text must be at least ${MIN_CHARS} characters.`);
+      return;
+    }
+    if (tooLong) {
+      setError(`Text must be at most ${MAX_CHARS.toLocaleString()} characters.`);
       return;
     }
     setLoading(true);
     setError(null);
     setResult(null);
+    const submitted = text.trim();
     try {
-      const res = await fetch("/api/analyze", {
+      setResult(await fetchJson<AnalysisResult>("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: text.trim(), url: urlInput.trim() || null }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
-      }
-      setResult(await res.json());
+        body: JSON.stringify({ text: submitted, url: urlInput.trim() || null }),
+        timeoutMs: ANALYZE_TIMEOUT_MS,
+      }));
+      setAnalyzedText(submitted);
       setShowAnnotated(true);
       setShowChunks(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Analysis failed");
+      setError(errorMessage(e, "Analysis failed"));
     } finally {
       setLoading(false);
     }
@@ -211,15 +224,16 @@ export function AnalyzerPage() {
             className="w-full px-3.5 py-2.5 rounded border border-border bg-input-background text-foreground text-base placeholder:text-muted-foreground resize-y focus:outline-none focus:border-accent focus:ring-2 focus:ring-[var(--accent)]/20 transition-colors"
           />
           <div className="flex items-center gap-2 text-sm text-muted-foreground" style={{ fontFamily: "var(--font-data)" }}>
-            <span>{charCount.toLocaleString()} / 50,000 chars</span>
-            {tooShort && <span className="text-destructive">· minimum 50</span>}
+            <span>{charCount.toLocaleString()} / {MAX_CHARS.toLocaleString()} chars</span>
+            {tooShort && <span className="text-destructive">· minimum {MIN_CHARS}</span>}
+            {tooLong && <span className="text-destructive">· over the limit, shorten the text</span>}
           </div>
         </div>
 
         <div className="flex flex-wrap gap-2.5 pt-1">
           <button
             onClick={analyze}
-            disabled={loading || tooShort}
+            disabled={loading || tooShort || tooLong}
             className="px-6 py-2.5 bg-primary text-primary-foreground rounded text-base font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity"
           >
             {loading ? "Analyzing…" : "Analyze text"}
@@ -232,6 +246,7 @@ export function AnalyzerPage() {
           </button>
           <button
             onClick={() => { setText(""); setUrlInput(""); setResult(null); setError(null); }}
+            disabled={loading}
             className="px-5 py-2.5 bg-secondary text-secondary-foreground rounded text-base font-medium hover:bg-muted transition-colors"
           >
             Clear
@@ -319,11 +334,7 @@ export function AnalyzerPage() {
               </div>
               <div className="px-6 py-5">
                 <AnnotationLegend />
-                {showAnnotated ? (
-                  <AnnotatedText chunks={result.chunks} />
-                ) : (
-                  <p className="text-lg leading-relaxed text-foreground">{text}</p>
-                )}
+                <ArticleText text={analyzedText} chunks={result.chunks} annotate={showAnnotated} />
               </div>
             </div>
           )}

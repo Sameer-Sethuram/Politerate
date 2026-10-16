@@ -311,8 +311,29 @@ def is_google_news_entry(entry):
 # RSS Fetching
 # ------------------------------------------------------------
 
+# feedparser.parse(url) downloads with no timeout, so one feed that stops
+# responding would hang the hourly run (and every run after it) forever.
+FEED_TIMEOUT_SECONDS = 15
+
+
+def download_feed(url):
+    """The parsed feed at `url`, or an empty one if it can't be fetched in
+    time. Sent with feedparser's own User-Agent, as when it downloaded."""
+    try:
+        response = requests.get(
+            url, headers={"User-Agent": feedparser.USER_AGENT}, timeout=FEED_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+    except requests.RequestException as e:
+        print(f"[RSS] could not fetch {url[:80]}: {e}")
+        return feedparser.parse(b"")
+    # Its headers carry the charset, which feedparser decodes with.
+    headers = {k.lower(): v for k, v in response.headers.items()}
+    return feedparser.parse(response.content, response_headers=headers)
+
+
 def fetch_rss_feed(url, region=US, category=POLITICS, policy=False):
-    feed = feedparser.parse(url)
+    feed = download_feed(url)
     articles = []
     seen = set()
     google_news_resolved = 0
@@ -329,6 +350,11 @@ def fetch_rss_feed(url, region=US, category=POLITICS, policy=False):
             link = resolve_google_news_url(link)
             if not link:
                 continue
+
+        # Links end up in the site's pages, where a javascript: one would
+        # run when clicked.
+        if urlparse(link).scheme not in ("http", "https"):
+            continue
 
         # 2. Filter podcasts AFTER redirect
         if is_podcast_url(link):

@@ -5,6 +5,7 @@ Highlights political terms in summary text with tooltip definitions.
 Provides an interactive learning experience for users unfamiliar with political jargon.
 """
 
+import html
 import re
 import json
 from pathlib import Path
@@ -229,18 +230,34 @@ class TermHighlighter:
         return re.compile(pattern, re.IGNORECASE)
 
     def highlight(self, text: str, css_class: str = "politerate-term") -> str:
+        """`text` as HTML, each glossary term wrapped in a tooltip span.
+        Everything else is escaped: the text is scraped news (or a summary
+        of it), and the frontend renders this HTML as markup, so a "<script>"
+        in an article must arrive as text."""
         def replace_term(match):
             term = match.group(0).lower()
             term_info = self.glossary.get(term, self.glossary.get(next((k for k in self.glossary if k.lower() == term), None)))
 
             if term_info:
-                definition = term_info.get("definition", "").replace('"', "&quot;")
+                definition = term_info.get("definition", "")
                 category = term_info.get("category", "")
                 tooltip = f"{category}: {definition}" if category else definition
-                return f'<span class="{css_class}" title="{tooltip}" data-term="{term}">{match.group(0)}</span>'
-            return match.group(0)
+                return (
+                    f'<span class="{css_class}" title="{html.escape(tooltip)}" '
+                    f'data-term="{html.escape(term)}">{html.escape(match.group(0))}</span>'
+                )
+            return html.escape(match.group(0))
 
-        return self.term_pattern.sub(replace_term, text)
+        # Escapes the text between terms rather than the whole text up front,
+        # so terms still match when escaping would change them (an "&").
+        parts = []
+        last = 0
+        for match in self.term_pattern.finditer(text):
+            parts.append(html.escape(text[last:match.start()]))
+            parts.append(replace_term(match))
+            last = match.end()
+        parts.append(html.escape(text[last:]))
+        return "".join(parts)
 
     def get_term_definitions(self, text: str) -> list[dict]:
         found_terms = set(self.term_pattern.findall(text.lower()))

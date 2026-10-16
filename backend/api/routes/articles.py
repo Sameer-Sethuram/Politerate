@@ -6,6 +6,8 @@ from datetime import timedelta
 
 from flask import Blueprint, jsonify, request
 
+from backend.api import response_cache
+from backend.api.validation import MAX_ID_LENGTH, clean_text, is_http_url
 from backend.config import CREDIBILITY_THRESHOLD, site_now
 from backend.db.cache import get_archive_day, get_cached_summaries, get_cluster, is_stale, today_str
 from backend.db.connection import get_connection
@@ -21,31 +23,39 @@ ALL_ARTICLES_PAST_DAYS = 7
 def get_summaries():
     from backend.pipeline.summarizer import brief_relevance, select_brief_clusters
 
-    data = get_cached_summaries()
-    clusters = data.get("clusters", [])
-    brief_ids = {str(c.get("cluster_id")) for c in select_brief_clusters(clusters)}
-    for c in clusters:
-        # Sizes the Topics page's circles the way the Daily Brief ranks topics.
-        c["relevance"] = brief_relevance(c)
-        c["in_brief"] = str(c.get("cluster_id")) in brief_ids
-    return jsonify(data)
+    def build():
+        data = get_cached_summaries()
+        clusters = data.get("clusters", [])
+        brief_ids = {str(c.get("cluster_id")) for c in select_brief_clusters(clusters)}
+        for c in clusters:
+            # Sizes the Topics page's circles the way the Daily Brief ranks topics.
+            c["relevance"] = brief_relevance(c)
+            c["in_brief"] = str(c.get("cluster_id")) in brief_ids
+        return data
+
+    return jsonify(response_cache.cached(("summaries",), build))
 
 
 @articles_bp.route("/api/daily-summary")
 def get_daily_summary():
     from backend.pipeline.summarizer import PoliteratePipeline
 
-    cached = get_cached_summaries()
-    clusters = cached.get("clusters", [])
-    pipeline = PoliteratePipeline()
-    daily_data = pipeline.get_daily_summary_data(clusters)
-    daily_data["last_updated"] = cached.get("last_updated")
-    return jsonify(daily_data)
+    def build():
+        cached = get_cached_summaries()
+        clusters = cached.get("clusters", [])
+        pipeline = PoliteratePipeline()
+        daily_data = pipeline.get_daily_summary_data(clusters)
+        daily_data["last_updated"] = cached.get("last_updated")
+        return daily_data
+
+    return jsonify(response_cache.cached(("daily-summary",), build))
 
 
 @articles_bp.route("/api/summaries/<cluster_id>")
 def get_summary(cluster_id):
-    cluster = get_cluster(cluster_id)
+    if len(cluster_id) > MAX_ID_LENGTH:
+        return jsonify({"error": "Cluster not found"}), 404
+    cluster = response_cache.cached(("cluster", cluster_id), lambda: get_cluster(cluster_id))
     if not cluster:
         return jsonify({"error": "Cluster not found"}), 404
     return jsonify(cluster)
@@ -53,14 +63,16 @@ def get_summary(cluster_id):
 
 @articles_bp.route("/api/article/analysis")
 def api_article_analysis():
-    url = request.args.get("url", "").strip()
+    url = clean_text(request.args.get("url", ""))
     if not url:
         return jsonify({"error": "url parameter required"}), 400
+    if not is_http_url(url):
+        return jsonify({"error": "url must be an http(s) address of at most 2,048 characters"}), 400
 
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT url, title, source, text, credibility_score, credibility_label,
+        SELECT url, title, source, author, text, credibility_score, credibility_label,
                analysis_json, article_json, bias_label, dominant_emotion,
                subjectivity_ratio, analysis_status, analyzed_at, region, category
         FROM articles WHERE url = ?
@@ -83,6 +95,8 @@ def api_article_analysis():
         "url": row["url"],
         "title": row["title"],
         "source": row["source"],
+        # "Jane Roe, John Doe"; null when the page named no one
+        "author": row["author"],
         "credibility_score": row["credibility_score"],
         "credibility_label": row["credibility_label"],
         "bias_label": row["bias_label"],
@@ -127,6 +141,10 @@ def _topics_by_day(days: list[str], today: str) -> tuple[dict, set]:
 
 @articles_bp.route("/api/all-articles")
 def get_all_articles():
+    return jsonify(response_cache.cached(("all-articles",), _build_all_articles))
+
+
+def _build_all_articles() -> dict:
     today = today_str()
     now = site_now()
     days = [(now - timedelta(days=n)).strftime("%Y-%m-%d") for n in range(ALL_ARTICLES_PAST_DAYS + 1)]
@@ -176,17 +194,27 @@ def get_all_articles():
             "scraped_at": row["scraped_at"],
         })
 
-    return jsonify({
+    return {
         "articles": articles,
         "total": len(articles),
         "today": today,
         "credibility_threshold": CREDIBILITY_THRESHOLD,
-    })
+    }
 
 
 @articles_bp.route("/api/cluster/<cluster_id>/analysis")
 def api_cluster_analysis(cluster_id):
-    """Return per-article DeBERTa analysis for a cluster.
+    if len(cluster_id) > MAX_ID_LENGTH:
+        return jsonify({"error": "Cluster not found"}), 404
+    result = response_cache.cached(("cluster-analysis", cluster_id), lambda: _build_cluster_analysis(cluster_id))
+    if not result:
+        return jsonify({"error": "Cluster not found"}), 404
+    return jsonify(result)
+
+
+def _build_cluster_analysis(cluster_id: str) -> dict | None:
+    """Return per-article DeBERTa analysis for a cluster (None if there's
+    no such cluster today).
 
     Reads `articles.analysis_json` / `articles.article_json` populated by
     the pipeline's credibility filter. Never runs live inference — running
@@ -197,7 +225,7 @@ def api_cluster_analysis(cluster_id):
     """
     cluster = get_cluster(cluster_id)
     if not cluster:
-        return jsonify({"error": "Cluster not found"}), 404
+        return None
 
     articles_out = []
     cached_count = 0
@@ -236,10 +264,10 @@ def api_cluster_analysis(cluster_id):
         f"{pending_count} pending (no live inference)"
     )
 
-    return jsonify({
+    return {
         "cluster_id": cluster.get("cluster_id"),
         "model_version": "cached",
         "cached_count": cached_count,
         "pending_count": pending_count,
         "articles": articles_out,
-    })
+    }

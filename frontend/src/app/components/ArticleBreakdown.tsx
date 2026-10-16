@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { ChevronDown, ExternalLink } from "lucide-react";
+import { safeUrl } from "../sanitize";
 import {
-  Spinner, AnnotationLegend, AnnotatedText, BiasBar, CredBadge, EmotionBadge, LeanBadge, SubjectivityBar,
+  Spinner, AnnotationLegend, ArticleText, BiasBar, CredBadge, EmotionBadge, LeanBadge, SubjectivityBar,
   SectionLabel, Chunk, formatTechnique,
 } from "./shared";
 
@@ -9,6 +10,10 @@ export interface ClusterArticle {
   url: string;
   title?: string;
   source: string;
+  // "Jane Roe, John Doe"; null when the page named no one.
+  author?: string | null;
+  // The whole stored article, for showing it in paragraphs.
+  text?: string | null;
   credibility_score?: number | null;
   credibility_label?: string;
   lean?: string | null;
@@ -76,6 +81,7 @@ export function ArticleBlock({
             {article.credibility_score != null && <CredBadge score={article.credibility_score} />}
           </div>
           <p className="text-base text-foreground/85 leading-snug">{article.title ?? "Untitled"}</p>
+          {article.author && <p className="text-sm text-muted-foreground">By {article.author}</p>}
           {agg && (
             <p className="text-sm text-muted-foreground capitalize" style={{ fontFamily: "var(--font-data)" }}>
               {[
@@ -97,7 +103,7 @@ export function ArticleBlock({
         <div id={panelId} className="border-t border-border">
           <div className="p-5 border-b border-border">
             <a
-              href={article.url}
+              href={safeUrl(article.url)}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 text-base font-medium link"
@@ -163,11 +169,7 @@ export function ArticleBlock({
                         {showAnnotated ? "Hide analysis" : "Show analysis"}
                       </button>
                     </div>
-                    {showAnnotated ? (
-                      <AnnotatedText chunks={chunks} />
-                    ) : (
-                      <p className="text-lg leading-relaxed">{chunks.map(c => c.text).join(" ")}</p>
-                    )}
+                    <ArticleText text={article.text} chunks={chunks} annotate={showAnnotated} title={article.title} />
                   </div>
                 )}
 

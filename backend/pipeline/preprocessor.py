@@ -9,6 +9,7 @@ Prepares scraped article text for the summarizer pipeline:
   keeping the whole article as well (`full_text`, stored, shown and analyzed)
 """
 
+import json
 import re
 import unicodedata
 import logging
@@ -47,6 +48,36 @@ _PHOTO_CREDIT = re.compile(r"\s*\([^()]{0,80}\b(?:Photo|Getty Images|Pool)\b[^()
 
 # Lines shorter than this (in words) that aren't mid-paragraph get dropped
 _MIN_LINE_WORDS = 5
+
+# Bylines kept per article; more is a list scraped from a page section, not
+# the article's authors.
+MAX_AUTHORS = 4
+_MAX_AUTHOR_WORDS = 5
+_MAX_AUTHOR_CHARS = 60
+# What newspaper3k picks up around bylines that isn't a name: page
+# furniture, job titles, and the rest of a bio ("Politics Reporter",
+# "Based In Washington", "Read Full Bio").
+_NOT_A_NAME = re.compile(
+    r"(\d|@|https?:|\b(share|facebook|twitter|email|icon|close|follow|subscribe|"
+    r"sign up|click|image|photo|getty|updated|published|read more|more stories|bio|"
+    r"based in|reporter|correspondent|editor|writer|producer|contributor|columnist|"
+    r"analyst|anchor|host)\b)",
+    re.IGNORECASE,
+)
+# "Casey Wooten Is A Breaking News Editor For ...": newspaper3k takes bios
+# for bylines; the name is the part before "is a".
+_BIO = re.compile(r"^(.+?)\s+is\s+an?\s+", re.IGNORECASE)
+# Several authors in one byline: "A, B and C", "A & B", "A | B".
+_BYLINE_SEPARATORS = re.compile(r"\s*,\s*|\s+and\s+|\s*&\s*|\s*\|\s*", re.IGNORECASE)
+# A wire service credited after the reporter: "BECKY BOHRER Associated Press".
+_TRAILING_AGENCY = re.compile(r"^(.+?)\s+((?:The\s+)?Associated Press|Reuters|AFP)$", re.IGNORECASE)
+# Outlets' long names, by the short label they go by here, for spotting an
+# outlet crediting itself ("The Christian Science Monitor" on CS Monitor).
+_OUTLET_LONG_NAMES = {
+    "csmonitor": "christiansciencemonitor",
+    "nypost": "newyorkpost",
+    "upi": "unitedpressinternational",
+}
 
 
 def _is_all_caps(line: str) -> bool:
@@ -95,6 +126,64 @@ def clean_text(text: str) -> str:
     text = re.sub(r"^[ \t]+|[ \t]+$", "", text, flags=re.MULTILINE)
 
     return text.strip()
+
+
+def _outlet_key(name: str) -> str:
+    return re.sub(r"\b(the|news|newshour|staff)\b|[^a-z]", "", name.lower())
+
+
+def _is_outlet(name: str, source: str) -> bool:
+    """True for a byline that's the outlet itself ("Abc News" on ABC, "Al
+    Jazeera Staff"): the site shows the outlet next to the byline anyway."""
+    key, outlet = _outlet_key(name), _outlet_key(source or "")
+    return bool(key) and key in (outlet, _OUTLET_LONG_NAMES.get(outlet))
+
+
+def _proper_case(name: str) -> str:
+    """ALL-CAPS words in names title-cased ("BECKY BOHRER"); short ones
+    like "AP" or "CNN" are left as they are."""
+    return " ".join(w.capitalize() if w.isupper() and len(w) > 3 else w for w in name.split())
+
+
+def clean_authors(authors, source: str = "") -> list[str]:
+    """The article's authors, from the page's metadata or newspaper3k's
+    guesses (a list, or the JSON list the download cache stores): bylines
+    split into one name each, with job titles, bios, page furniture and the
+    outlet crediting itself left out."""
+    if isinstance(authors, str):
+        try:
+            authors = json.loads(authors)
+        except ValueError:
+            authors = [authors]
+    if not isinstance(authors, list):
+        return []
+
+    candidates = []
+    for raw in authors:
+        byline = " ".join(str(raw).split())
+        bio = _BIO.match(byline)
+        if bio:
+            byline = bio.group(1)
+        for part in _BYLINE_SEPARATORS.split(byline):
+            agency = _TRAILING_AGENCY.match(part)
+            candidates.extend(agency.groups() if agency else [part])
+
+    names: list[str] = []
+    for candidate in candidates:
+        name = _proper_case(candidate.strip(" ,;|-–—."))
+        if not name or len(name) > _MAX_AUTHOR_CHARS or len(name.split()) > _MAX_AUTHOR_WORDS:
+            continue
+        if _NOT_A_NAME.search(name) or _is_outlet(name, source):
+            continue
+        if name.lower() not in {n.lower() for n in names}:
+            names.append(name)
+
+    # A lone first name next to the full one ("Kathryn", "Kathryn Watson").
+    names = [
+        n for n in names
+        if " " in n or not any(m.lower().startswith(n.lower() + " ") for m in names)
+    ]
+    return names[:MAX_AUTHORS]
 
 
 def validate_article(article: dict) -> tuple[bool, str]:
@@ -189,6 +278,7 @@ def preprocess_single(article: dict) -> dict | None:
         "full_text": f"{title}. {full_body}" if title else full_body,
         "url": url,
         "source": article.get("source", "unknown"),
+        "authors": clean_authors(article.get("authors"), article.get("source", "")),
         "region": article.get("region"),
         "category": article.get("category"),
         "policy": article.get("policy", False),

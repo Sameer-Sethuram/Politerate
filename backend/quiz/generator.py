@@ -56,22 +56,32 @@ def _article_snippets_for_term(articles: list[dict], term: str, limit: int = 3) 
     return hits
 
 
-def _terms_appearing_in_articles(articles: list[dict], highlighter: TermHighlighter) -> list[str]:
-    found = highlighter.find_terms_with_sources(articles)
+def _terms_appearing_in_articles(
+    articles: list[dict],
+    highlighter: TermHighlighter,
+    term_sources: Optional[dict] = None,
+) -> list[str]:
+    found = term_sources if term_sources is not None else highlighter.find_terms_with_sources(articles)
     return [t for t, sources in found.items() if sources]
 
 
-def pick_term_of_day(articles: list[dict], rng: Optional[random.Random] = None) -> dict:
+def pick_term_of_day(
+    articles: list[dict],
+    rng: Optional[random.Random] = None,
+    term_sources: Optional[dict] = None,
+) -> dict:
     """Pick a political term to feature today.
 
     Prefers terms found in today's articles so the learner sees the concept
     applied to current news. Falls back to a random glossary term otherwise.
+    `term_sources` is find_terms_with_sources(articles), if the caller has
+    it already: computing it scans every article's text.
     """
     highlighter = TermHighlighter()
     glossary = highlighter.glossary
     rng = rng or random.Random()
 
-    in_news = _terms_appearing_in_articles(articles, highlighter)
+    in_news = _terms_appearing_in_articles(articles, highlighter, term_sources)
     pool = in_news if in_news else list(glossary.keys())
     if not pool:
         return {}
@@ -185,12 +195,10 @@ def _build_headline_question(
         title = article.get("title") or ""
         if not title:
             continue
-        sentence = _sentence_containing_term(text, term)
         candidates.append({
             "source": article.get("source", "Unknown"),
             "url": article.get("url", "#"),
             "title": title,
-            "sentence": sentence,
             "text": text,
         })
 
@@ -198,6 +206,9 @@ def _build_headline_question(
         return None
 
     choice = rng.choice(candidates)
+    # Only for the chosen article: splitting every candidate's full text
+    # into sentences made each quiz take most of a second.
+    choice["sentence"] = _sentence_containing_term(choice["text"], term)
 
     terms_in_article = {
         t for t in glossary if _has_term(choice["text"], t)
@@ -261,7 +272,8 @@ def _sentence_containing_term(text: str, term: str) -> str:
 def build_quiz(
     articles: list[dict],
     count: int = 5,
-    rng: Optional[random.Random] = None
+    rng: Optional[random.Random] = None,
+    term_sources: Optional[dict] = None,
 ) -> dict:
     """Generate a rule-based quiz of `count` multiple-choice questions.
 
@@ -269,6 +281,8 @@ def build_quiz(
       - Prefer terms that appear in today's articles (lets us ground in news).
       - Mix three question types: definition→term, term→definition, and
         fill-in-the-blank using real article snippets.
+
+    `term_sources` is as for pick_term_of_day.
     """
     highlighter = TermHighlighter()
     glossary = highlighter.glossary
@@ -277,7 +291,7 @@ def build_quiz(
     if not glossary:
         return {"questions": [], "source_pool": []}
 
-    in_news = _terms_appearing_in_articles(articles, highlighter)
+    in_news = _terms_appearing_in_articles(articles, highlighter, term_sources)
     news_pool = in_news.copy()
     rng.shuffle(news_pool)
 

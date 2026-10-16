@@ -1,6 +1,7 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Earth, Landmark } from "lucide-react";
+import { safeUrl } from "../sanitize";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -224,7 +225,8 @@ export function SourceBadge({
   credibility?: CredibilityData;
   lean?: string;
 }) {
-  const isLink = !!url && url !== "#";
+  const href = safeUrl(url);
+  const isLink = !!href && url !== "#";
   const inner = (
     <>
       {lean && lean !== "unknown" && <LeanBadge lean={lean} />}
@@ -247,7 +249,7 @@ export function SourceBadge({
   if (isLink) {
     return (
       <a
-        href={url}
+        href={href}
         target="_blank"
         rel="noopener noreferrer"
         className={`${cls} group hover:border-[var(--accent)]`}
@@ -321,29 +323,130 @@ export function AnnotationLegend() {
   );
 }
 
-export function AnnotatedText({ chunks }: { chunks: Chunk[] }) {
-  if (!chunks?.length) return null;
+// ─── Article text ─────────────────────────────────────────────────────────────
+
+/** A stretch of an article's text, with the analysis chunk covering it
+ *  (null where none does). */
+interface TextSegment {
+  text: string;
+  chunk: Chunk | null;
+}
+
+const NO_CHUNKS: Chunk[] = [];
+
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** `text` cut into the stretches each chunk covers, in order. The
+ *  analyzer's chunker splits and rejoins sentences with single spaces, so a
+ *  chunk is found word by word, whatever whitespace (paragraph breaks
+ *  included) sits between its words. One that can't be found is left
+ *  unhighlighted rather than shown out of place. */
+function chunkSegments(text: string, chunks: Chunk[]): TextSegment[] {
+  const segments: TextSegment[] = [];
+  let cursor = 0;
+  for (const chunk of chunks) {
+    const words = (chunk.text ?? "").split(/\s+/).filter(Boolean);
+    if (!words.length) continue;
+    const pattern = new RegExp(words.map(escapeRegExp).join("\\s*"), "g");
+    pattern.lastIndex = cursor;
+    const match = pattern.exec(text);
+    if (!match) continue;
+    if (match.index > cursor) segments.push({ text: text.slice(cursor, match.index), chunk: null });
+    segments.push({ text: match[0], chunk });
+    cursor = match.index + match[0].length;
+  }
+  if (cursor < text.length) segments.push({ text: text.slice(cursor), chunk: null });
+  return segments;
+}
+
+/** `segments` without their first `count` characters. */
+function dropLeading(segments: TextSegment[], count: number): TextSegment[] {
+  const kept: TextSegment[] = [];
+  for (const seg of segments) {
+    if (count >= seg.text.length) {
+      count -= seg.text.length;
+      continue;
+    }
+    kept.push(count > 0 ? { ...seg, text: seg.text.slice(count) } : seg);
+    count = 0;
+  }
+  return kept;
+}
+
+/** Segments grouped into the article's paragraphs, which the stored text
+ *  separates with blank lines. A single line break is a scraping artifact
+ *  (a link on a line of its own), so it reads as a space. */
+function toParagraphs(segments: TextSegment[]): TextSegment[][] {
+  const paragraphs: TextSegment[][] = [[]];
+  for (const seg of segments) {
+    seg.text.split(/\n\s*\n/).forEach((piece, i) => {
+      if (i > 0) paragraphs.push([]);
+      // Whitespace-only pieces stay: they're the space between two
+      // sentences, which would otherwise run together.
+      const flat = piece.replace(/\s+/g, " ");
+      if (flat) paragraphs[paragraphs.length - 1].push({ text: flat, chunk: seg.chunk });
+    });
+  }
+  return paragraphs.filter(p => p.some(seg => seg.text.trim()));
+}
+
+function chunkTip(chunk: Chunk): string {
+  const techList = chunk.techniques.map(t => t.label.replace(/_/g, " ")).join(", ");
+  const emo = chunk.emotion !== "neutral" ? chunk.emotion : "";
+  return [techList, emo].filter(Boolean).join(" · ");
+}
+
+/**
+ * An article in its own paragraphs, with the analyzer's flagged passages
+ * highlighted when `annotate` is on. Chunks are matched back onto the
+ * stored text, since they're sentences and don't keep its paragraph
+ * breaks; without the text (older rows) the chunks are all there is.
+ * `title` drops the headline the pipeline stores at the start of the text,
+ * which the page shows above it already.
+ */
+export function ArticleText({ text, chunks = NO_CHUNKS, annotate = false, title }: {
+  text?: string | null;
+  chunks?: Chunk[];
+  annotate?: boolean;
+  title?: string | null;
+}) {
+  const paragraphs = useMemo(() => {
+    const source = text || chunks.map(c => c.text).join(" ");
+    const headline = title ? `${title}. ` : "";
+    const skip = headline && source.startsWith(headline) ? headline.length : 0;
+    return toParagraphs(dropLeading(chunkSegments(source, chunks), skip));
+  }, [text, chunks, title]);
+
+  if (!paragraphs.length) return null;
   return (
-    <p className="leading-relaxed text-lg text-foreground">
-      {chunks.map((chunk, i) => {
-        const cat = chunkCategory(chunk);
-        if (!cat) return <span key={i}>{chunk.text} </span>;
-        const techList = chunk.techniques.map(t => t.label.replace(/_/g, " ")).join(", ");
-        const emo = chunk.emotion !== "neutral" ? chunk.emotion : "";
-        const tip = [techList, emo].filter(Boolean).join(" · ");
-        return (
-          <span
-            key={i}
-            title={tip}
-            className="annot cursor-help rounded-sm px-0.5"
-            style={hueStyle(ANNOT_HUES[cat] ?? ANNOT_HUES.loaded)}
-          >
-            {chunk.text}{" "}
-          </span>
-        );
-      })}
-    </p>
+    <div className="space-y-4 text-lg leading-relaxed text-foreground">
+      {paragraphs.map((paragraph, i) => (
+        <p key={i}>
+          {paragraph.map((seg, j) => {
+            const cat = annotate && seg.chunk ? chunkCategory(seg.chunk) : null;
+            if (!cat) return <span key={j}>{seg.text}</span>;
+            return (
+              <span
+                key={j}
+                title={chunkTip(seg.chunk!)}
+                className="annot cursor-help rounded-sm px-0.5"
+                style={hueStyle(ANNOT_HUES[cat] ?? ANNOT_HUES.loaded)}
+              >
+                {seg.text}
+              </span>
+            );
+          })}
+        </p>
+      ))}
+    </div>
   );
+}
+
+/** "By Jane Roe, John Doe" under an article's headline; nothing when the
+ *  page named no one. */
+export function Byline({ author, className = "" }: { author?: string | null; className?: string }) {
+  if (!author) return null;
+  return <p className={`text-base text-muted-foreground ${className}`}>By {author}</p>;
 }
 
 // ─── Glossary term tooltip ────────────────────────────────────────────────────
